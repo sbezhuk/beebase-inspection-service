@@ -10,10 +10,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	httpmw "github.com/sbezhuk/beebase-common/authmw"
+	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
 )
 
 // NewRouter builds the root HTTP handler for the service.
-func NewRouter(log *slog.Logger, db *pgxpool.Pool) http.Handler {
+func NewRouter(
+	log *slog.Logger,
+	db *pgxpool.Pool,
+	inspectionHandler *inspectionhttp.Handler,
+	tokenParser httpmw.AccessTokenParser,
+) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -23,6 +31,22 @@ func NewRouter(log *slog.Logger, db *pgxpool.Pool) http.Handler {
 
 	r.Get("/health", HealthHandler)
 	r.Get("/ready", ReadyHandler(db))
+
+	r.Group(func(r chi.Router) {
+		r.Use(httpmw.RequireAuth(tokenParser))
+
+		r.Route("/api/v1/inspections", func(r chi.Router) {
+			r.Post("/", inspectionHandler.Create)
+			r.Get("/{inspectionID}", inspectionHandler.Get)
+			r.Put("/{inspectionID}", inspectionHandler.Update)
+			r.Delete("/{inspectionID}", inspectionHandler.Delete)
+		})
+
+		// Nested under its parent hive, since listing inspections is
+		// always "for a hive", not a flat "list everything I own" like
+		// apiaries/hives support.
+		r.Get("/api/v1/hives/{hiveID}/inspections", inspectionHandler.ListByHive)
+	})
 
 	return r
 }

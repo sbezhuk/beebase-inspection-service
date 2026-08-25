@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: BeeBase Inspection Service API
+  description: >
+    Inspection service for BeeBase, an open-source backend for a
+    beekeeper management application split into microservices. Access
+    tokens are issued by auth-service (see its OpenAPI spec); this
+    service verifies them against auth-service's public key and never
+    trusts a userID from anywhere but a verified token.
+
+    Every inspection belongs to a hive owned by hive-service, which
+    itself belongs to an apiary owned by apiary-service. Creating an
+    inspection requires that the caller own the referenced hive; this
+    service confirms that by forwarding the caller's own access token to
+    hive-service's GET /api/v1/hives/{id} and trusting its answer. Since
+    hive-service's own check is itself transitive against apiary-service,
+    this single call confirms the whole chain - inspection-service never
+    queries hive or apiary ownership itself.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+
+tags:
+  - name: system
+    description: Liveness and readiness probes.
+  - name: inspections
+    description: Create, read, update, and delete a user's own inspections.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      security: []
+      description: Always returns 200 while the process is running. Has no dependencies.
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+
+  /ready:
+    get:
+      tags: [system]
+      summary: Readiness probe
+      security: []
+      description: Returns 200 only if the database is reachable.
+      responses:
+        "200":
+          description: The service is ready to receive traffic.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "503":
+          description: A dependency (the database) is unreachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+
+  /api/v1/inspections:
+    post:
+      tags: [inspections]
+      summary: Create an inspection under one of the caller's own hives
+      description: >
+        Rejected with 404 hive_not_found if hive_id doesn't exist or
+        doesn't belong to the caller (which also covers its apiary not
+        belonging to the caller) — verified live against hive-service,
+        not trusted from the request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateInspectionRequest" }
+      responses:
+        "201":
+          description: Inspection created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InspectionResponse" }
+        "400":
+          description: Request failed validation (including a missing or malformed hive_id or inspected_at).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: hive_id doesn't exist, or belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/inspections/{inspectionId}:
+    parameters:
+      - name: inspectionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [inspections]
+      summary: Get one of the authenticated user's inspections
+      description: >
+        Returns 404 both when inspectionId doesn't exist and when it
+        belongs to a different user — the two cases are indistinguishable
+        to the caller, by design.
+      responses:
+        "200":
+          description: The inspection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InspectionResponse" }
+        "400":
+          description: inspectionId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: No such inspection, or it belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    put:
+      tags: [inspections]
+      summary: Replace an inspection's editable fields
+      description: >
+        Full replacement (PUT semantics), not a partial patch: inspected_at
+        and notes are both set from the request body. An inspection can't
+        be moved to a different hive — there's no hive_id here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateInspectionRequest" }
+      responses:
+        "200":
+          description: The updated inspection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InspectionResponse" }
+        "400":
+          description: inspectionId is not a valid UUID, or the request failed validation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: No such inspection, or it belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    delete:
+      tags: [inspections]
+      summary: Delete an inspection
+      description: Soft delete — the row is retained (deleted_at is set) for future sync support.
+      responses:
+        "204":
+          description: The inspection is deleted (or already was).
+        "400":
+          description: inspectionId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: No such inspection, or it belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/hives/{hiveId}/inspections:
+    parameters:
+      - name: hiveId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [inspections]
+      summary: List the authenticated user's inspections for one hive
+      description: >
+        Returns only inspections the caller owns for this hive. If hiveId
+        belongs to a different user (or doesn't exist), the result is an
+        empty list, not an error — the caller simply has no inspections
+        there, which reveals nothing about hiveId itself.
+      responses:
+        "200":
+          description: The caller's inspections for this hive.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InspectionResponse" }
+        "400":
+          description: hiveId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: An access token issued by auth-service's /api/v1/auth/login (or /register or /refresh).
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+
+    CreateInspectionRequest:
+      type: object
+      required: [hive_id, inspected_at, notes]
+      properties:
+        hive_id: { type: string, format: uuid, description: Must be a hive owned by the caller. }
+        inspected_at: { type: string, format: date-time, description: When the inspection took place (RFC 3339). }
+        notes: { type: string, maxLength: 2000 }
+
+    UpdateInspectionRequest:
+      type: object
+      required: [inspected_at, notes]
+      properties:
+        inspected_at: { type: string, format: date-time }
+        notes: { type: string, maxLength: 2000 }
+
+    InspectionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hive_id: { type: string, format: uuid }
+        inspected_at: { type: string, format: date-time }
+        notes: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ErrorResponse:
+      type: object
+      description: >
+        "code" is the stable, machine-readable key: build any localized
+        message off of it, not off "message" (an English fallback for logs
+        and manual debugging, not meant to be shown to end users).
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - inspection_not_found
+                - hive_not_found
+                - invalid_inspection_id
+                - invalid_hive_id
+                - missing_authorization
+                - invalid_access_token
+                - invalid_body
+                - internal_error
+              example: inspection_not_found
+            message: { type: string, example: inspection not found }
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [validation_error] }
+            message: { type: string, example: request validation failed }
+            fields:
+              type: object
+              description: >
+                Field name to error code. Each value is a stable key (not a
+                human-readable message) meant to be localized client-side.
+              additionalProperties:
+                type: string
+                enum:
+                  - hive_id_required
+                  - hive_id_invalid
+                  - inspected_at_required
+                  - inspected_at_invalid
+                  - notes_required
+                  - notes_too_long
+              example: { hive_id: "hive_id_invalid" }

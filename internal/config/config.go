@@ -22,6 +22,17 @@ type Config struct {
 	DatabaseConnectTimeout time.Duration
 
 	LogLevel string // "debug", "info", "warn", "error"
+
+	// AuthJWKSURL points at auth-service's public key endpoint
+	// (GET /.well-known/jwks.json), used to verify access tokens without
+	// ever holding a key that could mint one.
+	AuthJWKSURL string
+
+	// HiveServiceURL is hive-service's base URL. An inspection can only
+	// be created under a hive the caller owns, and hive-service is the
+	// only source of truth for that (transitively, for apiary ownership
+	// too): this service asks it, once, at creation time.
+	HiveServiceURL string
 }
 
 // Load builds a Config from environment variables, falling back to
@@ -40,10 +51,19 @@ func Load() (*Config, error) {
 		DatabaseConnectTimeout: getDuration("DATABASE_CONNECT_TIMEOUT", 5*time.Second),
 
 		LogLevel: getEnv("LOG_LEVEL", "info"),
+
+		AuthJWKSURL:    getEnv("AUTH_JWKS_URL", ""),
+		HiveServiceURL: getEnv("HIVE_SERVICE_URL", ""),
 	}
 
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("config: DATABASE_URL is required")
+	}
+	if cfg.AuthJWKSURL == "" {
+		return nil, fmt.Errorf("config: AUTH_JWKS_URL is required")
+	}
+	if cfg.HiveServiceURL == "" {
+		return nil, fmt.Errorf("config: HIVE_SERVICE_URL is required")
 	}
 
 	return cfg, nil

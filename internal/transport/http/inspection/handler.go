@@ -18,6 +18,7 @@ import (
 
 	httpmw "github.com/sbezhuk/beebase-common/authmw"
 	"github.com/sbezhuk/beebase-common/httpx"
+	"github.com/sbezhuk/beebase-common/pagination"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
@@ -108,13 +109,19 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inspections, err := h.service.ListByHive(r.Context(), userID, hiveID)
+	p, fields := pagination.ParseParams(r)
+	if len(fields) > 0 {
+		httpx.WriteValidationError(w, fields)
+		return
+	}
+
+	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, newListResponse(inspections))
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections), p, total))
 }
 
 // Update handles PUT /inspections/{inspectionID}.

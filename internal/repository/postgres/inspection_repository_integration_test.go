@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
 )
@@ -130,9 +131,12 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, err := repo.ListByHive(ctx, userA, hiveA)
+	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("ListByHive total = %d, want 2", total)
 	}
 	if len(list) != 2 {
 		t.Fatalf("ListByHive returned %d inspections, want 2", len(list))
@@ -140,6 +144,159 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 	for _, i := range list {
 		if i.UserID != userA || i.HiveID != hiveA {
 			t.Errorf("ListByHive leaked inspection %s (user %s, hive %s)", i.ID, i.UserID, i.HiveID)
+		}
+	}
+}
+
+func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	const count = 5
+	for i := 0; i < count; i++ {
+		if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "n/a")); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+
+	// First page.
+	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 1: %v", err)
+	}
+	if total != count {
+		t.Fatalf("total = %d, want %d", total, count)
+	}
+	if len(first) != 2 {
+		t.Fatalf("page 1 returned %d inspections, want 2", len(first))
+	}
+
+	// Middle page.
+	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 2: %v", err)
+	}
+	if total != count {
+		t.Fatalf("total = %d, want %d", total, count)
+	}
+	if len(middle) != 2 {
+		t.Fatalf("page 2 returned %d inspections, want 2", len(middle))
+	}
+
+	// Last (partial) page.
+	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 3: %v", err)
+	}
+	if total != count {
+		t.Fatalf("total = %d, want %d", total, count)
+	}
+	if len(last) != 1 {
+		t.Fatalf("page 3 returned %d inspections, want 1", len(last))
+	}
+
+	// Page beyond available data.
+	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 10: %v", err)
+	}
+	if total != count {
+		t.Fatalf("total = %d, want %d", total, count)
+	}
+	if len(beyond) != 0 {
+		t.Fatalf("page beyond available data returned %d inspections, want 0", len(beyond))
+	}
+
+	// Pages must not overlap and together must cover every row exactly once.
+	seen := map[uuid.UUID]bool{}
+	for _, i := range append(append(first, middle...), last...) {
+		if seen[i.ID] {
+			t.Errorf("inspection %s appeared on more than one page", i.ID)
+		}
+		seen[i.ID] = true
+	}
+	if len(seen) != count {
+		t.Errorf("pages together covered %d inspections, want %d", len(seen), count)
+	}
+}
+
+func TestInspectionRepository_ListByHive_Empty(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+
+	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("ListByHive: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if len(list) != 0 {
+		t.Fatalf("ListByHive = %v, want empty", list)
+	}
+}
+
+// TestInspectionRepository_ListByHive_StableOrdering guards against equal
+// inspected_at timestamps reshuffling rows between pages: the id
+// tiebreaker must make ordering deterministic even when many inspections
+// share a timestamp.
+func TestInspectionRepository_ListByHive_StableOrdering(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	same := inspectedAt()
+	ids := make([]uuid.UUID, 4)
+	for i := range ids {
+		insp := inspection.New(userID, hiveID, same, "n/a")
+		if err := repo.Create(ctx, insp); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+		ids[i] = insp.ID
+	}
+
+	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4})
+	if err != nil {
+		t.Fatalf("ListByHive run 1: %v", err)
+	}
+	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4})
+	if err != nil {
+		t.Fatalf("ListByHive run 2: %v", err)
+	}
+
+	if len(firstRun) != len(secondRun) {
+		t.Fatalf("run lengths differ: %d vs %d", len(firstRun), len(secondRun))
+	}
+	for i := range firstRun {
+		if firstRun[i].ID != secondRun[i].ID {
+			t.Fatalf("ordering unstable at index %d: %s vs %s", i, firstRun[i].ID, secondRun[i].ID)
 		}
 	}
 }
@@ -163,7 +320,7 @@ func TestInspectionRepository_ListByHive_WrongOwnerReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, err := repo.ListByHive(ctx, other, hiveID)
+	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}

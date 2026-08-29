@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"github.com/sbezhuk/beebase-common/pagination"
 )
 
 // Repository is the port through which the application persists and
@@ -20,10 +22,12 @@ import (
 type Repository interface {
 	Create(ctx context.Context, i *Inspection) error
 	GetByID(ctx context.Context, userID, inspectionID uuid.UUID) (*Inspection, error)
-	// ListByHive returns every inspection for hiveID that belongs to
-	// userID. If hiveID belongs to someone else, the result is empty
+	// ListByHive returns the page of inspections described by p for
+	// hiveID that belong to userID, along with the total number of
+	// matching inspections (independent of p, for computing pagination
+	// metadata). If hiveID belongs to someone else, the result is empty
 	// (not an error): the same "not found" hides existence either way.
-	ListByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*Inspection, error)
+	ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) (inspections []*Inspection, total int, err error)
 	// Update persists i.InspectedAt, i.Notes, and i.UpdatedAt for the
 	// inspection identified by i.ID, scoped to i.UserID. HiveID is
 	// immutable and never updated.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -53,9 +54,10 @@ func (s *Service) Get(ctx context.Context, userID, inspectionID uuid.UUID) (*ins
 	return s.inspections.GetByID(ctx, userID, inspectionID)
 }
 
-// ListByHive returns every inspection belonging to userID for hiveID.
-func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
-	return s.inspections.ListByHive(ctx, userID, hiveID)
+// ListByHive returns the page of inspections described by p belonging to
+// userID for hiveID.
+func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByHive(ctx, userID, hiveID, p)
 }
 
 // Update replaces the editable fields of the inspection identified by

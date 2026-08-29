@@ -201,23 +201,38 @@ paths:
       tags: [inspections]
       summary: List the authenticated user's inspections for one hive
       description: >
-        Returns only inspections the caller owns for this hive. If hiveId
-        belongs to a different user (or doesn't exist), the result is an
-        empty list, not an error — the caller simply has no inspections
-        there, which reveals nothing about hiveId itself.
+        Returns only inspections the caller owns for this hive, as a page
+        of results. If hiveId belongs to a different user (or doesn't
+        exist), the result is an empty page, not an error — the caller
+        simply has no inspections there, which reveals nothing about
+        hiveId itself. Omitting page/limit falls back to page=1, limit=20.
+      parameters:
+        - name: page
+          in: query
+          description: 1-indexed page number.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          description: Rows per page.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         "200":
-          description: The caller's inspections for this hive.
+          description: A page of the caller's inspections for this hive.
           content:
             application/json:
               schema:
-                type: array
-                items: { $ref: "#/components/schemas/InspectionResponse" }
+                type: object
+                required: [items, pagination]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/InspectionResponse" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
-          description: hiveId is not a valid UUID.
+          description: hiveId is not a valid UUID, or page or limit is invalid.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
         "401":
           description: Missing, invalid, or expired access token.
           content:
@@ -262,6 +277,18 @@ components:
         notes: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    Pagination:
+      type: object
+      description: Metadata describing the requested page relative to the full result set.
+      required: [page, limit, total, total_pages, has_next, has_previous]
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, description: Total matching rows across all pages., example: 125 }
+        total_pages: { type: integer, example: 7 }
+        has_next: { type: boolean }
+        has_previous: { type: boolean }
 
     ErrorResponse:
       type: object
@@ -309,4 +336,6 @@ components:
                   - inspected_at_invalid
                   - notes_required
                   - notes_too_long
+                  - invalid_page
+                  - invalid_limit
               example: { hive_id: "hive_id_invalid" }

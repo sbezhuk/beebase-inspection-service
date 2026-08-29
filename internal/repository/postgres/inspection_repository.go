@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -60,17 +61,29 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 	return &i, nil
 }
 
-func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
+func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
+	const countQ = `
+		SELECT count(*)
+		FROM inspections
+		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
+	`
+
+	var total int
+	if err := r.db.QueryRow(ctx, countQ, userID, hiveID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
+	}
+
 	const q = `
 		SELECT id, hive_id, user_id, inspected_at, notes, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
-		ORDER BY inspected_at ASC
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := r.db.Query(ctx, q, userID, hiveID)
+	rows, err := r.db.Query(ctx, q, userID, hiveID, p.Limit, p.Offset())
 	if err != nil {
-		return nil, fmt.Errorf("postgres: list inspections: %w", err)
+		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
 	}
 	defer rows.Close()
 
@@ -78,15 +91,15 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 	for rows.Next() {
 		var i inspection.Inspection
 		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt); err != nil {
-			return nil, fmt.Errorf("postgres: scan inspection: %w", err)
+			return nil, 0, fmt.Errorf("postgres: scan inspection: %w", err)
 		}
 		inspections = append(inspections, &i)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("postgres: list inspections: %w", err)
+		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
 	}
 
-	return inspections, nil
+	return inspections, total, nil
 }
 
 func (r *InspectionRepository) Update(ctx context.Context, i *inspection.Inspection) error {

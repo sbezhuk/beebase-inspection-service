@@ -471,3 +471,113 @@ func TestInspectionRepository_Delete_WrongOwner_NotFoundAndNotDeleted(t *testing
 		t.Fatalf("owner's inspection should survive a failed delete attempt: %v", err)
 	}
 }
+
+func TestInspectionRepository_DeleteByHive_HardDeletesOnlyThatHivesInspections(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+
+	a1 := inspection.New(userID, hiveA, inspectedAt(), "first", inspection.TypeRoutine)
+	a2 := inspection.New(userID, hiveA, inspectedAt(), "second", inspection.TypeRoutine)
+	b1 := inspection.New(userID, hiveB, inspectedAt(), "other hive", inspection.TypeRoutine)
+	for _, i := range []*inspection.Inspection{a1, a2, b1} {
+		if err := repo.Create(ctx, i); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+	// Also cover an already-soft-deleted row under hiveA: DeleteByHive must
+	// still purge it, since it has no deleted_at filter.
+	alreadyGone := inspection.New(userID, hiveA, inspectedAt(), "already soft-deleted", inspection.TypeRoutine)
+	if err := repo.Create(ctx, alreadyGone); err != nil {
+		t.Fatalf("create already-soft-deleted: %v", err)
+	}
+	if err := repo.Delete(ctx, userID, alreadyGone.ID); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	count, err := repo.DeleteByHive(ctx, userID, hiveA)
+	if err != nil {
+		t.Fatalf("DeleteByHive: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("DeleteByHive count = %d, want 3", count)
+	}
+
+	for _, id := range []uuid.UUID{a1.ID, a2.ID, alreadyGone.ID} {
+		var n int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM inspections WHERE id = $1", id).Scan(&n); err != nil {
+			t.Fatalf("raw count: %v", err)
+		}
+		if n != 0 {
+			t.Errorf("inspection %s still present after DeleteByHive; want fully removed", id)
+		}
+	}
+
+	if _, err := repo.GetByID(ctx, userID, b1.ID); err != nil {
+		t.Fatalf("other hive's inspection should survive DeleteByHive: %v", err)
+	}
+}
+
+func TestInspectionRepository_DeleteByHive_ScopedToUser(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	owner := uuid.New()
+	other := uuid.New()
+	hiveID := uuid.New()
+
+	i := inspection.New(owner, hiveID, inspectedAt(), "owner's", inspection.TypeRoutine)
+	if err := repo.Create(ctx, i); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	count, err := repo.DeleteByHive(ctx, other, hiveID)
+	if err != nil {
+		t.Fatalf("DeleteByHive by non-owner: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("DeleteByHive by non-owner count = %d, want 0", count)
+	}
+
+	if _, err := repo.GetByID(ctx, owner, i.ID); err != nil {
+		t.Fatalf("owner's inspection should survive another user's DeleteByHive: %v", err)
+	}
+}
+
+func TestInspectionRepository_DeleteByHive_ZeroMatchesIsNotAnError(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+
+	count, err := repo.DeleteByHive(ctx, uuid.New(), uuid.New())
+	if err != nil {
+		t.Fatalf("DeleteByHive with no matches: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
+	}
+}

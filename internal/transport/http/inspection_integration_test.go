@@ -466,6 +466,62 @@ func TestInspectionFlow_ListPagination(t *testing.T) {
 	}
 }
 
+// TestInspectionFlow_DeleteByHive is the end-to-end proof of the cascade
+// primitive hive-service calls when it deletes a hive: every inspection
+// under that hive is hard-deleted, while inspections under other hives
+// (even the same user's) survive.
+func TestInspectionFlow_DeleteByHive(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveA)
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveA.String(), "inspected_at": testInspectedAt, "notes": "in hiveA", "type": "ROUTINE",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create in hiveA: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var inHiveA inspectionhttp.Response
+	decodeJSON(t, resp, &inHiveA)
+
+	// Second token so the fake hive-service will authorize creating under
+	// hiveB too - both inspections still belong to the same userID.
+	stack.hive.allow(token, hiveB)
+	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveB.String(), "inspected_at": testInspectedAt, "notes": "in hiveB", "type": "ROUTINE",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create in hiveB: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var inHiveB inspectionhttp.Response
+	decodeJSON(t, resp, &inHiveB)
+
+	resp = stack.request(t, http.MethodDelete, "/api/v1/hives/"+hiveA.String()+"/inspections", token, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DeleteByHive: status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/"+inHiveA.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("get hiveA inspection after DeleteByHive: status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/"+inHiveB.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get hiveB inspection after DeleteByHive on hiveA: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	// Calling it again for the same (now-empty) hive is a no-op, not an
+	// error.
+	resp = stack.request(t, http.MethodDelete, "/api/v1/hives/"+hiveA.String()+"/inspections", token, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DeleteByHive again on empty hive: status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+}
+
 func TestInspectionFlow_ListInvalidPageAndLimit(t *testing.T) {
 	stack := newTestStack(t)
 	token := stack.tokenFor(t, uuid.New())

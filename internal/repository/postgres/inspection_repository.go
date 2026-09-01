@@ -137,3 +137,14 @@ func (r *InspectionRepository) Delete(ctx context.Context, userID, inspectionID 
 
 	return nil
 }
+
+func (r *InspectionRepository) DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (int64, error) {
+	const q = `DELETE FROM inspections WHERE hive_id = $1 AND user_id = $2`
+
+	tag, err := r.db.Exec(ctx, q, hiveID, userID)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete inspections by hive: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}

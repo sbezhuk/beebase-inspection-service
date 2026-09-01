@@ -85,3 +85,9 @@ func (s *Service) Update(ctx context.Context, userID, inspectionID uuid.UUID, in
 func (s *Service) Delete(ctx context.Context, userID, inspectionID uuid.UUID) error {
 	return s.inspections.Delete(ctx, userID, inspectionID)
 }
+
+// DeleteByHive hard-deletes every inspection belonging to hiveID and
+// userID. Used when hive-service cascades a hive delete.
+func (s *Service) DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (int64, error) {
+	return s.inspections.DeleteByHive(ctx, userID, hiveID)
+}

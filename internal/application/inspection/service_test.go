@@ -99,6 +99,19 @@ func (f *fakeRepo) Delete(_ context.Context, userID, inspectionID uuid.UUID) err
 	return nil
 }
 
+func (f *fakeRepo) DeleteByHive(_ context.Context, userID, hiveID uuid.UUID) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var count int64
+	for id, i := range f.byID {
+		if i.UserID == userID && i.HiveID == hiveID {
+			delete(f.byID, id)
+			count++
+		}
+	}
+	return count, nil
+}
+
 // --- fake hive verifier ---
 
 // fakeHiveVerifier simulates hive-service: a set of (token, hiveID) pairs
@@ -498,5 +511,92 @@ func TestDelete_WrongOwner_ReturnsNotFoundAndDoesNotDelete(t *testing.T) {
 
 	if _, err := svc.Get(context.Background(), owner, created.ID); err != nil {
 		t.Fatalf("owner's inspection should survive a failed delete attempt by another user: %v", err)
+	}
+}
+
+func TestDeleteByHive_DeletesOnlyThatHivesInspections(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier)
+	userID := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+	tokenA := "token-a"
+	tokenB := "token-b"
+	verifier.allow(tokenA, hiveA)
+	verifier.allow(tokenB, hiveB)
+
+	for _, notes := range []string{"first", "second"} {
+		if _, err := svc.Create(context.Background(), userID, tokenA, appinspection.CreateInput{
+			HiveID: hiveA, InspectedAt: inspectedAt(), Notes: notes, Type: inspection.TypeRoutine,
+		}); err != nil {
+			t.Fatalf("create %s: %v", notes, err)
+		}
+	}
+	keep, err := svc.Create(context.Background(), userID, tokenB, appinspection.CreateInput{
+		HiveID: hiveB, InspectedAt: inspectedAt(), Notes: "other hive", Type: inspection.TypeRoutine,
+	})
+	if err != nil {
+		t.Fatalf("create other hive's inspection: %v", err)
+	}
+
+	count, err := svc.DeleteByHive(context.Background(), userID, hiveA)
+	if err != nil {
+		t.Fatalf("DeleteByHive: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("DeleteByHive count = %d, want 2", count)
+	}
+
+	list, total, err := svc.ListByHive(context.Background(), userID, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("ListByHive: %v", err)
+	}
+	if total != 0 || len(list) != 0 {
+		t.Fatalf("hiveA inspections survived DeleteByHive: total=%d list=%v", total, list)
+	}
+
+	if _, err := svc.Get(context.Background(), userID, keep.ID); err != nil {
+		t.Fatalf("other hive's inspection should survive DeleteByHive: %v", err)
+	}
+}
+
+func TestDeleteByHive_ScopedToUser(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier)
+	owner := uuid.New()
+	other := uuid.New()
+	hiveID := uuid.New()
+	token := "owner-token"
+	verifier.allow(token, hiveID)
+
+	created, err := svc.Create(context.Background(), owner, token, appinspection.CreateInput{
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's", Type: inspection.TypeRoutine,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	count, err := svc.DeleteByHive(context.Background(), other, hiveID)
+	if err != nil {
+		t.Fatalf("DeleteByHive by non-owner: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("DeleteByHive by non-owner count = %d, want 0", count)
+	}
+
+	if _, err := svc.Get(context.Background(), owner, created.ID); err != nil {
+		t.Fatalf("owner's inspection should survive another user's DeleteByHive: %v", err)
+	}
+}
+
+func TestDeleteByHive_ZeroMatchesIsNotAnError(t *testing.T) {
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier())
+
+	count, err := svc.DeleteByHive(context.Background(), uuid.New(), uuid.New())
+	if err != nil {
+		t.Fatalf("DeleteByHive with no matches: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
 	}
 }

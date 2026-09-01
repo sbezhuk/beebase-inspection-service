@@ -35,4 +35,10 @@ type Repository interface {
 	// Delete soft-deletes the inspection (sets deleted_at) rather than
 	// removing the row, per the project's synchronizable-entity plan.
 	Delete(ctx context.Context, userID, inspectionID uuid.UUID) error
+	// DeleteByHive hard-deletes every inspection belonging to hiveID and
+	// userID, including ones a prior soft-delete already marked gone.
+	// Used only when hive-service cascades a hive delete; a zero count is
+	// a normal outcome (the hive may simply have no inspections), not an
+	// error.
+	DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (int64, error)
 }

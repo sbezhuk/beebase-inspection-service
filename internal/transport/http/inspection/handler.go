@@ -176,6 +176,29 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteByHive handles DELETE /hives/{hiveID}/inspections. It hard-deletes
+// every inspection belonging to hiveID, used by hive-service to cascade a
+// hive delete.
+func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveID"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
+		return
+	}
+
+	if _, err := h.service.DeleteByHive(r.Context(), userID, hiveID); err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // requireAuth returns the authenticated user's ID (from context, set by
 // httpmw.RequireAuth) and their raw access token (read back off the
 // request's own Authorization header, which RequireAuth already

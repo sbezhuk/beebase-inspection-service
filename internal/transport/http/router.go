@@ -46,6 +46,9 @@ func NewRouter(
 		// always "for a hive", not a flat "list everything I own" like
 		// apiaries/hives support.
 		r.Get("/api/v1/hives/{hiveID}/inspections", inspectionHandler.ListByHive)
+		// Internal cascade primitive: called by hive-service when it
+		// deletes a hive, forwarding the caller's own access token.
+		r.Delete("/api/v1/hives/{hiveID}/inspections", inspectionHandler.DeleteByHive)
 	})
 
 	return r

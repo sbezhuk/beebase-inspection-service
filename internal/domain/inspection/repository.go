@@ -28,8 +28,8 @@ type Repository interface {
 	// metadata). If hiveID belongs to someone else, the result is empty
 	// (not an error): the same "not found" hides existence either way.
 	ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) (inspections []*Inspection, total int, err error)
-	// Update persists i.InspectedAt, i.Notes, and i.UpdatedAt for the
-	// inspection identified by i.ID, scoped to i.UserID. HiveID is
+	// Update persists i.InspectedAt, i.Notes, i.Type, and i.UpdatedAt for
+	// the inspection identified by i.ID, scoped to i.UserID. HiveID is
 	// immutable and never updated.
 	Update(ctx context.Context, i *Inspection) error
 	// Delete soft-deletes the inspection (sets deleted_at) rather than

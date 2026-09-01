@@ -20,6 +20,7 @@ type Inspection struct {
 
 	InspectedAt time.Time // when the inspection took place, not a bookkeeping timestamp
 	Notes       string
+	Type        Type
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -28,8 +29,9 @@ type Inspection struct {
 
 // New constructs an Inspection owned by userID for hiveID, with a freshly
 // generated ID and CreatedAt/UpdatedAt set to now. Callers must have
-// already verified that hiveID belongs to userID before calling New.
-func New(userID, hiveID uuid.UUID, inspectedAt time.Time, notes string) *Inspection {
+// already verified that hiveID belongs to userID, and that t is Valid(),
+// before calling New.
+func New(userID, hiveID uuid.UUID, inspectedAt time.Time, notes string, t Type) *Inspection {
 	now := time.Now().UTC()
 	return &Inspection{
 		ID:          uuid.New(),
@@ -37,6 +39,7 @@ func New(userID, hiveID uuid.UUID, inspectedAt time.Time, notes string) *Inspect
 		HiveID:      hiveID,
 		InspectedAt: inspectedAt,
 		Notes:       notes,
+		Type:        t,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

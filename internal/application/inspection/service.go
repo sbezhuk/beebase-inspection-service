@@ -40,7 +40,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, accessToken stri
 		return nil, err
 	}
 
-	i := inspection.New(userID, in.HiveID, in.InspectedAt, in.Notes)
+	i := inspection.New(userID, in.HiveID, in.InspectedAt, in.Notes, in.Type)
 	if err := s.inspections.Create(ctx, i); err != nil {
 		return nil, fmt.Errorf("inspection: create: %w", err)
 	}
@@ -70,6 +70,7 @@ func (s *Service) Update(ctx context.Context, userID, inspectionID uuid.UUID, in
 
 	i.InspectedAt = in.InspectedAt
 	i.Notes = in.Notes
+	i.Type = in.Type
 	i.UpdatedAt = time.Now().UTC()
 
 	if err := s.inspections.Update(ctx, i); err != nil {

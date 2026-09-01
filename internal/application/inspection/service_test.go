@@ -141,6 +141,7 @@ func TestCreate_Success(t *testing.T) {
 		HiveID:      hiveID,
 		InspectedAt: inspectedAt(),
 		Notes:       "queen seen, brood pattern good",
+		Type:        inspection.TypeQueen,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -150,6 +151,9 @@ func TestCreate_Success(t *testing.T) {
 	}
 	if i.HiveID != hiveID {
 		t.Errorf("HiveID = %s, want %s", i.HiveID, hiveID)
+	}
+	if i.Type != inspection.TypeQueen {
+		t.Errorf("Type = %q, want %q", i.Type, inspection.TypeQueen)
 	}
 }
 
@@ -167,6 +171,7 @@ func TestCreate_HiveNotOwnedByCaller(t *testing.T) {
 		HiveID:      someoneElsesHive,
 		InspectedAt: inspectedAt(),
 		Notes:       "snooping",
+		Type:        inspection.TypeRoutine,
 	})
 	if !errors.Is(err, appinspection.ErrHiveNotFound) {
 		t.Fatalf("Create under unowned hive: got %v, want ErrHiveNotFound", err)
@@ -181,6 +186,7 @@ func TestCreate_UnknownHive(t *testing.T) {
 		HiveID:      uuid.New(),
 		InspectedAt: inspectedAt(),
 		Notes:       "n/a",
+		Type:        inspection.TypeRoutine,
 	})
 	if !errors.Is(err, appinspection.ErrHiveNotFound) {
 		t.Fatalf("Create under unknown hive: got %v, want ErrHiveNotFound", err)
@@ -196,7 +202,7 @@ func TestGet_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a", Type: inspection.TypeHealth,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -208,6 +214,9 @@ func TestGet_Success(t *testing.T) {
 	}
 	if got.ID != created.ID {
 		t.Errorf("Get returned %s, want %s", got.ID, created.ID)
+	}
+	if got.Type != inspection.TypeHealth {
+		t.Errorf("Type = %q, want %q", got.Type, inspection.TypeHealth)
 	}
 }
 
@@ -232,7 +241,7 @@ func TestGet_WrongOwner_ReturnsNotFound(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's inspection",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's inspection", Type: inspection.TypeRoutine,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -258,13 +267,13 @@ func TestListByHive_ReturnsOnlyOwnInspectionsForThatHive(t *testing.T) {
 
 	for _, notes := range []string{"first", "second"} {
 		if _, err := svc.Create(context.Background(), userA, tokenA, appinspection.CreateInput{
-			HiveID: hiveA1, InspectedAt: inspectedAt(), Notes: notes,
+			HiveID: hiveA1, InspectedAt: inspectedAt(), Notes: notes, Type: inspection.TypeRoutine,
 		}); err != nil {
 			t.Fatalf("create %s: %v", notes, err)
 		}
 	}
 	if _, err := svc.Create(context.Background(), userB, tokenB, appinspection.CreateInput{
-		HiveID: hiveB, InspectedAt: inspectedAt(), Notes: "userB's",
+		HiveID: hiveB, InspectedAt: inspectedAt(), Notes: "userB's", Type: inspection.TypeRoutine,
 	}); err != nil {
 		t.Fatalf("create userB's: %v", err)
 	}
@@ -296,7 +305,7 @@ func TestListByHive_Pagination(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
-			HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a",
+			HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a", Type: inspection.TypeRoutine,
 		}); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
@@ -361,7 +370,7 @@ func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	if _, err := svc.Create(context.Background(), owner, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's", Type: inspection.TypeRoutine,
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -384,7 +393,7 @@ func TestUpdate_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "old notes",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "old notes", Type: inspection.TypeRoutine,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -394,12 +403,16 @@ func TestUpdate_Success(t *testing.T) {
 	updated, err := svc.Update(context.Background(), userID, created.ID, appinspection.UpdateInput{
 		InspectedAt: newTime,
 		Notes:       "new notes",
+		Type:        inspection.TypeQueen,
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if updated.Notes != "new notes" {
 		t.Errorf("Notes = %q, want %q", updated.Notes, "new notes")
+	}
+	if updated.Type != inspection.TypeQueen {
+		t.Errorf("Type = %q, want %q", updated.Type, inspection.TypeQueen)
 	}
 	if !updated.InspectedAt.Equal(newTime) {
 		t.Errorf("InspectedAt = %v, want %v", updated.InspectedAt, newTime)
@@ -419,13 +432,13 @@ func TestUpdate_WrongOwner_ReturnsNotFound(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's", Type: inspection.TypeRoutine,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	_, err = svc.Update(context.Background(), other, created.ID, appinspection.UpdateInput{Notes: "hijacked"})
+	_, err = svc.Update(context.Background(), other, created.ID, appinspection.UpdateInput{Notes: "hijacked", Type: inspection.TypeRoutine})
 	if !errors.Is(err, inspection.ErrNotFound) {
 		t.Fatalf("Update by non-owner: got %v, want ErrNotFound", err)
 	}
@@ -448,7 +461,7 @@ func TestDelete_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "gone soon",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "gone soon", Type: inspection.TypeRoutine,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -473,7 +486,7 @@ func TestDelete_WrongOwner_ReturnsNotFoundAndDoesNotDelete(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, token, appinspection.CreateInput{
-		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's",
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "owner's", Type: inspection.TypeRoutine,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

@@ -204,6 +204,7 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 		"hive_id":      hiveID.String(),
 		"inspected_at": testInspectedAt,
 		"notes":        "queen seen, brood pattern good",
+		"type":         "QUEEN",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -213,11 +214,20 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 	if created.HiveID != hiveID {
 		t.Fatalf("create: hive_id = %s, want %s", created.HiveID, hiveID)
 	}
+	if created.Type != "QUEEN" || created.TypeLabel != "Queen" {
+		t.Fatalf("create: type = %q, type_label = %q, want %q, %q", created.Type, created.TypeLabel, "QUEEN", "Queen")
+	}
 
-	// Get
+	// Get - the type set at creation must be correctly restored when
+	// reopening the inspection for editing.
 	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/"+created.ID.String(), token, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var fetched inspectionhttp.Response
+	decodeJSON(t, resp, &fetched)
+	if fetched.Type != "QUEEN" {
+		t.Fatalf("get: type = %q, want %q", fetched.Type, "QUEEN")
 	}
 
 	// List for the hive
@@ -234,10 +244,11 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 		t.Fatalf("list: pagination = %+v, want total=1 page=1 limit=%d", list.Pagination, pagination.DefaultLimit)
 	}
 
-	// Update
+	// Update - changes the inspection type from "QUEEN" to "BROOD".
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]string{
 		"inspected_at": "2026-03-16T09:00:00Z",
 		"notes":        "re-inspected: all good",
+		"type":         "BROOD",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update: status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -246,6 +257,9 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 	decodeJSON(t, resp, &updated)
 	if updated.Notes != "re-inspected: all good" {
 		t.Fatalf("update: notes = %q, want %q", updated.Notes, "re-inspected: all good")
+	}
+	if updated.Type != "BROOD" || updated.TypeLabel != "Brood" {
+		t.Fatalf("update: type = %q, type_label = %q, want %q, %q", updated.Type, updated.TypeLabel, "BROOD", "Brood")
 	}
 	if updated.HiveID != hiveID {
 		t.Fatalf("update: hive_id changed to %s, want unchanged %s", updated.HiveID, hiveID)
@@ -277,6 +291,7 @@ func TestInspectionFlow_CreateRejectedWhenHiveNotOwned(t *testing.T) {
 		"hive_id":      someoneElsesHive.String(),
 		"inspected_at": testInspectedAt,
 		"notes":        "snooping",
+		"type":         "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("create under unowned hive: status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -305,6 +320,7 @@ func TestInspectionFlow_CannotAccessAnotherUsersInspection(t *testing.T) {
 		"hive_id":      hiveID.String(),
 		"inspected_at": testInspectedAt,
 		"notes":        "owner's inspection",
+		"type":         "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -317,7 +333,7 @@ func TestInspectionFlow_CannotAccessAnotherUsersInspection(t *testing.T) {
 		body   any
 	}{
 		{http.MethodGet, nil},
-		{http.MethodPut, map[string]string{"inspected_at": testInspectedAt, "notes": "hijacked"}},
+		{http.MethodPut, map[string]string{"inspected_at": testInspectedAt, "notes": "hijacked", "type": "ROUTINE"}},
 		{http.MethodDelete, nil},
 	}
 	for _, tc := range cases {
@@ -370,6 +386,7 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 		"hive_id":      uuid.New().String(),
 		"inspected_at": testInspectedAt,
 		"notes":        "",
+		"type":         "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create with empty notes: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
@@ -379,6 +396,7 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 		"hive_id":      "not-a-uuid",
 		"inspected_at": testInspectedAt,
 		"notes":        "ok",
+		"type":         "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create with malformed hive_id: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
@@ -388,9 +406,20 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 		"hive_id":      uuid.New().String(),
 		"inspected_at": "not-a-date",
 		"notes":        "ok",
+		"type":         "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create with malformed inspected_at: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id":      uuid.New().String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "ok",
+		"type":         "swarm",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create with invalid type: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
 
 	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/not-a-uuid", token, nil)
@@ -416,6 +445,7 @@ func TestInspectionFlow_ListPagination(t *testing.T) {
 			"hive_id":      hiveID.String(),
 			"inspected_at": testInspectedAt,
 			"notes":        "n/a",
+			"type":         "ROUTINE",
 		})
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("create %d: status = %d, want %d", i, resp.StatusCode, http.StatusCreated)

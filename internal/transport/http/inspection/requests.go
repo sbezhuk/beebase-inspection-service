@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/httpx"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
 const maxNotesLength = 2000
@@ -23,6 +24,8 @@ const (
 	CodeInspectedAtInvalid  = "inspected_at_invalid"
 	CodeNotesRequired       = "notes_required"
 	CodeNotesTooLong        = "notes_too_long"
+	CodeTypeRequired        = "type_required"
+	CodeTypeInvalid         = "type_invalid"
 )
 
 // validatable is implemented by every request DTO in this package.
@@ -55,10 +58,11 @@ type CreateRequest struct {
 	HiveID      string `json:"hive_id"`
 	InspectedAt string `json:"inspected_at"` // RFC 3339
 	Notes       string `json:"notes"`
+	Type        string `json:"type"`
 }
 
 func (r *CreateRequest) Validate() map[string]string {
-	fields := validateFields(r.InspectedAt, r.Notes)
+	fields := validateFields(r.InspectedAt, r.Notes, r.Type)
 
 	switch {
 	case strings.TrimSpace(r.HiveID) == "":
@@ -73,19 +77,20 @@ func (r *CreateRequest) Validate() map[string]string {
 }
 
 // UpdateRequest is the body of PUT /inspections/{inspectionID}. Update
-// replaces both editable fields (PUT semantics), not a partial patch.
+// replaces every editable field (PUT semantics), not a partial patch.
 // There's no hive_id here: an inspection can't be moved to a different
 // hive.
 type UpdateRequest struct {
 	InspectedAt string `json:"inspected_at"`
 	Notes       string `json:"notes"`
+	Type        string `json:"type"`
 }
 
 func (r *UpdateRequest) Validate() map[string]string {
-	return validateFields(r.InspectedAt, r.Notes)
+	return validateFields(r.InspectedAt, r.Notes, r.Type)
 }
 
-func validateFields(inspectedAt, notes string) map[string]string {
+func validateFields(inspectedAt, notes, typ string) map[string]string {
 	fields := map[string]string{}
 
 	switch {
@@ -102,6 +107,13 @@ func validateFields(inspectedAt, notes string) map[string]string {
 		fields["notes"] = CodeNotesRequired
 	case len(notes) > maxNotesLength:
 		fields["notes"] = CodeNotesTooLong
+	}
+
+	switch {
+	case strings.TrimSpace(typ) == "":
+		fields["type"] = CodeTypeRequired
+	case !inspection.Type(typ).Valid():
+		fields["type"] = CodeTypeInvalid
 	}
 
 	return fields

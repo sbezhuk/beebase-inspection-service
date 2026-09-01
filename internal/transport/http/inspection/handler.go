@@ -66,6 +66,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		HiveID:      hiveID,
 		InspectedAt: inspectedAt,
 		Notes:       req.Notes,
+		Type:        inspection.Type(req.Type),
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
@@ -145,6 +146,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.service.Update(r.Context(), userID, inspectionID, appinspection.UpdateInput{
 		InspectedAt: inspectedAt,
 		Notes:       req.Notes,
+		Type:        inspection.Type(req.Type),
 	})
 	if err != nil {
 		h.writeServiceError(w, err)

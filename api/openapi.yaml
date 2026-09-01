@@ -82,7 +82,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InspectionResponse" }
         "400":
-          description: Request failed validation (including a missing or malformed hive_id or inspected_at).
+          description: Request failed validation (including a missing or malformed hive_id, inspected_at, or type).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -137,9 +137,9 @@ paths:
       tags: [inspections]
       summary: Replace an inspection's editable fields
       description: >
-        Full replacement (PUT semantics), not a partial patch: inspected_at
-        and notes are both set from the request body. An inspection can't
-        be moved to a different hive — there's no hive_id here.
+        Full replacement (PUT semantics), not a partial patch: inspected_at,
+        notes, and type are all set from the request body. An inspection
+        can't be moved to a different hive — there's no hive_id here.
       requestBody:
         required: true
         content:
@@ -253,20 +253,29 @@ components:
       properties:
         status: { type: string, example: ok }
 
+    InspectionType:
+      type: string
+      description: >
+        The kind of inspection performed. Closed set - adding a new value
+        is a server-side change, not something a client can send freely.
+      enum: [ROUTINE, QUEEN, BROOD, HEALTH, FEEDING, SEASONAL]
+
     CreateInspectionRequest:
       type: object
-      required: [hive_id, inspected_at, notes]
+      required: [hive_id, inspected_at, notes, type]
       properties:
         hive_id: { type: string, format: uuid, description: Must be a hive owned by the caller. }
         inspected_at: { type: string, format: date-time, description: When the inspection took place (RFC 3339). }
         notes: { type: string, maxLength: 2000 }
+        type: { $ref: "#/components/schemas/InspectionType" }
 
     UpdateInspectionRequest:
       type: object
-      required: [inspected_at, notes]
+      required: [inspected_at, notes, type]
       properties:
         inspected_at: { type: string, format: date-time }
         notes: { type: string, maxLength: 2000 }
+        type: { $ref: "#/components/schemas/InspectionType" }
 
     InspectionResponse:
       type: object
@@ -275,6 +284,11 @@ components:
         hive_id: { type: string, format: uuid }
         inspected_at: { type: string, format: date-time }
         notes: { type: string }
+        type: { $ref: "#/components/schemas/InspectionType" }
+        type_label:
+          type: string
+          description: Human-readable label for "type" (e.g. "Routine"), derived server-side.
+          example: Routine
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -336,6 +350,8 @@ components:
                   - inspected_at_invalid
                   - notes_required
                   - notes_too_long
+                  - type_required
+                  - type_invalid
                   - invalid_page
                   - invalid_limit
               example: { hive_id: "hive_id_invalid" }

@@ -33,7 +33,7 @@ func TestInspectionRepository_CreateAndGet(t *testing.T) {
 	userID := uuid.New()
 	hiveID := uuid.New()
 
-	i := inspection.New(userID, hiveID, inspectedAt(), "queen seen, brood pattern good")
+	i := inspection.New(userID, hiveID, inspectedAt(), "queen seen, brood pattern good", inspection.TypeQueen)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -47,6 +47,9 @@ func TestInspectionRepository_CreateAndGet(t *testing.T) {
 	}
 	if got.Notes != i.Notes {
 		t.Errorf("Notes = %q, want %q", got.Notes, i.Notes)
+	}
+	if got.Type != inspection.TypeQueen {
+		t.Errorf("Type = %q, want %q", got.Type, inspection.TypeQueen)
 	}
 	if !got.InspectedAt.Equal(i.InspectedAt) {
 		t.Errorf("InspectedAt = %v, want %v", got.InspectedAt, i.InspectedAt)
@@ -89,7 +92,7 @@ func TestInspectionRepository_GetByID_WrongOwner_NotFound(t *testing.T) {
 	owner := uuid.New()
 	other := uuid.New()
 
-	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's inspection")
+	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's inspection", inspection.TypeRoutine)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -117,17 +120,17 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 	hiveB := uuid.New()
 
 	for _, notes := range []string{"first", "second"} {
-		if err := repo.Create(ctx, inspection.New(userA, hiveA, inspectedAt(), notes)); err != nil {
+		if err := repo.Create(ctx, inspection.New(userA, hiveA, inspectedAt(), notes, inspection.TypeRoutine)); err != nil {
 			t.Fatalf("create %s: %v", notes, err)
 		}
 	}
 	// same user, different hive: must not show up when listing hiveA
-	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "different hive")); err != nil {
+	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "different hive", inspection.TypeRoutine)); err != nil {
 		t.Fatalf("create different-hive inspection: %v", err)
 	}
 	// different user entirely, same hive id would be impossible in
 	// practice (hive_id implies one owner) but a different hive for userB
-	if err := repo.Create(ctx, inspection.New(userB, hiveB, inspectedAt(), "userB's")); err != nil {
+	if err := repo.Create(ctx, inspection.New(userB, hiveB, inspectedAt(), "userB's", inspection.TypeRoutine)); err != nil {
 		t.Fatalf("create userB's: %v", err)
 	}
 
@@ -164,7 +167,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 
 	const count = 5
 	for i := 0; i < count; i++ {
-		if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "n/a")); err != nil {
+		if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "n/a", inspection.TypeRoutine)); err != nil {
 			t.Fatalf("create %d: %v", i, err)
 		}
 	}
@@ -275,7 +278,7 @@ func TestInspectionRepository_ListByHive_StableOrdering(t *testing.T) {
 	same := inspectedAt()
 	ids := make([]uuid.UUID, 4)
 	for i := range ids {
-		insp := inspection.New(userID, hiveID, same, "n/a")
+		insp := inspection.New(userID, hiveID, same, "n/a", inspection.TypeRoutine)
 		if err := repo.Create(ctx, insp); err != nil {
 			t.Fatalf("create %d: %v", i, err)
 		}
@@ -316,7 +319,7 @@ func TestInspectionRepository_ListByHive_WrongOwnerReturnsEmpty(t *testing.T) {
 	other := uuid.New()
 	hiveID := uuid.New()
 
-	if err := repo.Create(ctx, inspection.New(owner, hiveID, inspectedAt(), "owner's")); err != nil {
+	if err := repo.Create(ctx, inspection.New(owner, hiveID, inspectedAt(), "owner's", inspection.TypeRoutine)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -342,7 +345,7 @@ func TestInspectionRepository_Update(t *testing.T) {
 	repo := repopostgres.NewInspectionRepository(tx)
 	userID := uuid.New()
 
-	i := inspection.New(userID, uuid.New(), inspectedAt(), "old notes")
+	i := inspection.New(userID, uuid.New(), inspectedAt(), "old notes", inspection.TypeRoutine)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -350,6 +353,7 @@ func TestInspectionRepository_Update(t *testing.T) {
 	newTime := inspectedAt().Add(24 * time.Hour)
 	i.InspectedAt = newTime
 	i.Notes = "new notes"
+	i.Type = inspection.TypeHealth
 	if err := repo.Update(ctx, i); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -357,6 +361,9 @@ func TestInspectionRepository_Update(t *testing.T) {
 	got, err := repo.GetByID(ctx, userID, i.ID)
 	if err != nil {
 		t.Fatalf("GetByID after update: %v", err)
+	}
+	if got.Type != inspection.TypeHealth {
+		t.Errorf("Type = %q, want %q", got.Type, inspection.TypeHealth)
 	}
 	if got.Notes != "new notes" {
 		t.Errorf("Notes = %q, want %q", got.Notes, "new notes")
@@ -380,7 +387,7 @@ func TestInspectionRepository_Update_WrongOwner_NotFound(t *testing.T) {
 	owner := uuid.New()
 	other := uuid.New()
 
-	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's")
+	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's", inspection.TypeRoutine)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -414,7 +421,7 @@ func TestInspectionRepository_Delete_SoftDelete(t *testing.T) {
 	repo := repopostgres.NewInspectionRepository(tx)
 	userID := uuid.New()
 
-	i := inspection.New(userID, uuid.New(), inspectedAt(), "gone soon")
+	i := inspection.New(userID, uuid.New(), inspectedAt(), "gone soon", inspection.TypeRoutine)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -451,7 +458,7 @@ func TestInspectionRepository_Delete_WrongOwner_NotFoundAndNotDeleted(t *testing
 	owner := uuid.New()
 	other := uuid.New()
 
-	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's")
+	i := inspection.New(owner, uuid.New(), inspectedAt(), "owner's", inspection.TypeRoutine)
 	if err := repo.Create(ctx, i); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

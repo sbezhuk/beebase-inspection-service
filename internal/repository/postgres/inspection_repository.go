@@ -27,11 +27,11 @@ func NewInspectionRepository(db Querier) *InspectionRepository {
 
 func (r *InspectionRepository) Create(ctx context.Context, i *inspection.Inspection) error {
 	const q = `
-		INSERT INTO inspections (id, hive_id, user_id, inspected_at, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO inspections (id, hive_id, user_id, inspected_at, notes, type, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err := r.db.Exec(ctx, q, i.ID, i.HiveID, i.UserID, i.InspectedAt, i.Notes, i.CreatedAt, i.UpdatedAt)
+	_, err := r.db.Exec(ctx, q, i.ID, i.HiveID, i.UserID, i.InspectedAt, i.Notes, i.Type, i.CreatedAt, i.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("postgres: create inspection: %w", err)
 	}
@@ -41,7 +41,7 @@ func (r *InspectionRepository) Create(ctx context.Context, i *inspection.Inspect
 
 func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID uuid.UUID) (*inspection.Inspection, error) {
 	const q = `
-		SELECT id, hive_id, user_id, inspected_at, notes, created_at, updated_at, deleted_at
+		SELECT id, hive_id, user_id, inspected_at, notes, type, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`
@@ -49,7 +49,7 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 	var i inspection.Inspection
 
 	err := r.db.QueryRow(ctx, q, inspectionID, userID).Scan(
-		&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt,
+		&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -74,7 +74,7 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 	}
 
 	const q = `
-		SELECT id, hive_id, user_id, inspected_at, notes, created_at, updated_at, deleted_at
+		SELECT id, hive_id, user_id, inspected_at, notes, type, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
 		ORDER BY inspected_at ASC, id ASC
@@ -90,7 +90,7 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 	inspections := []*inspection.Inspection{}
 	for rows.Next() {
 		var i inspection.Inspection
-		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt); err != nil {
 			return nil, 0, fmt.Errorf("postgres: scan inspection: %w", err)
 		}
 		inspections = append(inspections, &i)
@@ -105,11 +105,11 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 func (r *InspectionRepository) Update(ctx context.Context, i *inspection.Inspection) error {
 	const q = `
 		UPDATE inspections
-		SET inspected_at = $1, notes = $2, updated_at = $3
-		WHERE id = $4 AND user_id = $5 AND deleted_at IS NULL
+		SET inspected_at = $1, notes = $2, type = $3, updated_at = $4
+		WHERE id = $5 AND user_id = $6 AND deleted_at IS NULL
 	`
 
-	tag, err := r.db.Exec(ctx, q, i.InspectedAt, i.Notes, i.UpdatedAt, i.ID, i.UserID)
+	tag, err := r.db.Exec(ctx, q, i.InspectedAt, i.Notes, i.Type, i.UpdatedAt, i.ID, i.UserID)
 	if err != nil {
 		return fmt.Errorf("postgres: update inspection: %w", err)
 	}

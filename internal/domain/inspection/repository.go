@@ -28,6 +28,11 @@ type Repository interface {
 	// metadata). If hiveID belongs to someone else, the result is empty
 	// (not an error): the same "not found" hides existence either way.
 	ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) (inspections []*Inspection, total int, err error)
+	// ListByUser returns the page of inspections described by p across
+	// every hive belonging to userID, along with the total number of
+	// matching inspections (independent of p). Used by statistics-service
+	// to compute inspection stats without a per-hive fan-out.
+	ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params) (inspections []*Inspection, total int, err error)
 	// Update persists i.InspectedAt, i.Notes, i.Type, and i.UpdatedAt for
 	// the inspection identified by i.ID, scoped to i.UserID. HiveID is
 	// immutable and never updated.

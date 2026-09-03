@@ -151,6 +151,71 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 	}
 }
 
+func TestInspectionRepository_ListByUser_AcrossEveryHive(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userA := uuid.New()
+	userB := uuid.New()
+
+	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "hive 1", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create hive1: %v", err)
+	}
+	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "hive 2", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create hive2: %v", err)
+	}
+	if err := repo.Create(ctx, inspection.New(userB, uuid.New(), inspectedAt(), "userB's", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create userB's: %v", err)
+	}
+
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("ListByUser total = %d, want 2", total)
+	}
+	if len(list) != 2 {
+		t.Fatalf("ListByUser returned %d inspections, want 2", len(list))
+	}
+	for _, i := range list {
+		if i.UserID != userA {
+			t.Errorf("ListByUser leaked inspection %s belonging to %s", i.ID, i.UserID)
+		}
+	}
+}
+
+func TestInspectionRepository_ListByUser_Empty(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+
+	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if len(list) != 0 {
+		t.Fatalf("ListByUser = %v, want empty", list)
+	}
+}
+
 func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

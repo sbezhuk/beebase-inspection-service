@@ -37,14 +37,16 @@ func NewRouter(
 
 		r.Route("/api/v1/inspections", func(r chi.Router) {
 			r.Post("/", inspectionHandler.Create)
+			r.Get("/", inspectionHandler.List)
 			r.Get("/{inspectionID}", inspectionHandler.Get)
 			r.Put("/{inspectionID}", inspectionHandler.Update)
 			r.Delete("/{inspectionID}", inspectionHandler.Delete)
 		})
 
-		// Nested under its parent hive, since listing inspections is
-		// always "for a hive", not a flat "list everything I own" like
-		// apiaries/hives support.
+		// Listing scoped to one hive stays a separate endpoint from the
+		// flat "list everything I own" above - it's what hive/inspection
+		// detail screens actually want, and statistics-service uses the
+		// flat form instead of fanning this out per hive.
 		r.Get("/api/v1/hives/{hiveID}/inspections", inspectionHandler.ListByHive)
 		// Internal cascade primitive: called by hive-service when it
 		// deletes a hive, forwarding the caller's own access token.

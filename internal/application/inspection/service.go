@@ -60,6 +60,12 @@ func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pa
 	return s.inspections.ListByHive(ctx, userID, hiveID, p)
 }
 
+// List returns the page of inspections described by p across every hive
+// belonging to userID.
+func (s *Service) List(ctx context.Context, userID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByUser(ctx, userID, p)
+}
+
 // Update replaces the editable fields of the inspection identified by
 // inspectionID, if it belongs to userID.
 func (s *Service) Update(ctx context.Context, userID, inspectionID uuid.UUID, in UpdateInput) (*inspection.Inspection, error) {

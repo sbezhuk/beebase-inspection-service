@@ -97,6 +97,28 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, newResponse(got))
 }
 
+// List handles GET /inspections.
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	userID, _, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	p, fields := pagination.ParseParams(r)
+	if len(fields) > 0 {
+		httpx.WriteValidationError(w, fields)
+		return
+	}
+
+	inspections, total, err := h.service.List(r.Context(), userID, p)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections), p, total))
+}
+
 // ListByHive handles GET /hives/{hiveID}/inspections.
 func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 	userID, _, ok := h.requireAuth(w, r)

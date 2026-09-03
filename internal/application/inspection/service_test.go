@@ -75,6 +75,36 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 	return all[start:end], total, nil
 }
 
+func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var all []*inspection.Inspection
+	for _, i := range f.byID {
+		if i.UserID == userID && i.DeletedAt == nil {
+			cp := *i
+			all = append(all, &cp)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].InspectedAt.Equal(all[j].InspectedAt) {
+			return all[i].InspectedAt.Before(all[j].InspectedAt)
+		}
+		return all[i].ID.String() < all[j].ID.String()
+	})
+
+	total := len(all)
+	start := p.Offset()
+	if start > total {
+		start = total
+	}
+	end := start + p.Limit
+	if end > total {
+		end = total
+	}
+
+	return all[start:end], total, nil
+}
+
 func (f *fakeRepo) Update(_ context.Context, i *inspection.Inspection) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -394,6 +424,97 @@ func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("ListByHive by non-owner = %v, want empty", list)
+	}
+}
+
+func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier)
+	userA := uuid.New()
+	userB := uuid.New()
+	hiveA1 := uuid.New()
+	hiveA2 := uuid.New()
+	hiveB := uuid.New()
+	tokenA1 := "token-a1"
+	tokenA2 := "token-a2"
+	tokenB := "token-b"
+	verifier.allow(tokenA1, hiveA1)
+	verifier.allow(tokenA2, hiveA2)
+	verifier.allow(tokenB, hiveB)
+
+	if _, err := svc.Create(context.Background(), userA, tokenA1, appinspection.CreateInput{
+		HiveID: hiveA1, InspectedAt: inspectedAt(), Notes: "hive 1", Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("create hive1: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), userA, tokenA2, appinspection.CreateInput{
+		HiveID: hiveA2, InspectedAt: inspectedAt(), Notes: "hive 2", Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("create hive2: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), userB, tokenB, appinspection.CreateInput{
+		HiveID: hiveB, InspectedAt: inspectedAt(), Notes: "userB's", Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("create userB's: %v", err)
+	}
+
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("List total = %d, want 2", total)
+	}
+	if len(list) != 2 {
+		t.Fatalf("List returned %d inspections, want 2", len(list))
+	}
+	for _, i := range list {
+		if i.UserID != userA {
+			t.Errorf("List leaked inspection %s belonging to %s", i.ID, i.UserID)
+		}
+	}
+}
+
+func TestList_Pagination(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	for i := 0; i < 5; i++ {
+		if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+			HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a", Type: inspection.TypeRoutine,
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("List page 1: %v", err)
+	}
+	if total != 5 {
+		t.Fatalf("total = %d, want 5", total)
+	}
+	if len(firstPage) != 2 {
+		t.Fatalf("page 1 returned %d inspections, want 2", len(firstPage))
+	}
+}
+
+func TestList_Empty(t *testing.T) {
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier())
+
+	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
+	}
+	if len(list) != 0 {
+		t.Fatalf("List = %v, want empty", list)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/hiveclient"
+	"github.com/sbezhuk/beebase-inspection-service/internal/platform/mediaclient"
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
 	transporthttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http"
 	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
@@ -67,9 +68,108 @@ func (f *fakeHiveService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// fakeMediaService stands in for media-service's GET /api/v1/media?ids=
+// and DELETE /api/v1/media?ids= endpoints, which inspection-service now
+// calls to verify image ownership on create/update and to hard-delete an
+// inspection's own files when its hive is cascade-deleted: it answers GET
+// from an in-memory set of media ids a test can seed as belonging to the
+// caller via own(), and 204 to DELETE. It records every request it
+// received, so tests can assert the cascade actually reached it, without
+// running a second full service.
+type fakeMediaService struct {
+	mu       sync.Mutex
+	received []*http.Request
+	ownedIDs map[uuid.UUID]bool
+}
+
+func newFakeMediaService() *fakeMediaService {
+	return &fakeMediaService{ownedIDs: map[uuid.UUID]bool{}}
+}
+
+// own registers each of ids as belonging to the caller, so this fake's
+// GET /api/v1/media?ids= endpoint returns it.
+func (f *fakeMediaService) own(ids ...uuid.UUID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, id := range ids {
+		f.ownedIDs[id] = true
+	}
+}
+
+func (f *fakeMediaService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.received = append(f.received, r.Clone(r.Context()))
+	f.mu.Unlock()
+
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/media":
+		f.serveList(w, r)
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// serveList answers GET /api/v1/media?ids=&ids=...: returns every
+// requested id this fake was told is own()ed by the caller, silently
+// omitting unknown/foreign ones - mirroring media-service's real
+// behavior closely enough for the ownership verification to be exercised
+// against it.
+func (f *fakeMediaService) serveList(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	items := []map[string]any{}
+	for _, raw := range r.URL.Query()["ids"] {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if f.ownedIDs[id] {
+			items = append(items, map[string]any{"id": id})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+}
+
+// calledWithQueryValue reports whether any received request's repeated
+// query param key (e.g. ?ids=&ids=...) includes value among its values.
+func (f *fakeMediaService) calledWithQueryValue(key, value string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.received {
+		for _, v := range r.URL.Query()[key] {
+			if v == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// calledDeleteWithQueryValue reports whether any received DELETE
+// request's repeated query param key includes value among its values.
+func (f *fakeMediaService) calledDeleteWithQueryValue(key, value string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.received {
+		if r.Method != http.MethodDelete {
+			continue
+		}
+		for _, v := range r.URL.Query()[key] {
+			if v == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type testStack struct {
 	server *httptest.Server
 	hive   *fakeHiveService
+	media  *fakeMediaService
 	priv   ed25519.PrivateKey
 }
 
@@ -119,18 +219,23 @@ func newTestStack(t *testing.T) *testStack {
 	hiveServer := httptest.NewServer(hive)
 	t.Cleanup(hiveServer.Close)
 
+	media := newFakeMediaService()
+	mediaServer := httptest.NewServer(media)
+	t.Cleanup(mediaServer.Close)
+
 	inspectionRepo := repopostgres.NewInspectionRepository(tx)
 	hiveVerifier := hiveclient.New(hiveServer.URL)
-	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier)
+	mediaClient := mediaclient.New(mediaServer.URL)
+	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient)
 	log := logger.New("development", "error")
-	handler := inspectionhttp.NewHandler(inspectionService, log)
+	handler := inspectionhttp.NewHandler(inspectionService, log, "http://localhost:8080")
 
 	router := transporthttp.NewRouter(log, pool, handler, verifier)
 
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
-	return &testStack{server: srv, hive: hive, priv: priv}
+	return &testStack{server: srv, hive: hive, media: media, priv: priv}
 }
 
 func (s *testStack) tokenFor(t *testing.T, userID uuid.UUID) string {
@@ -540,5 +645,137 @@ func TestInspectionFlow_ListInvalidPageAndLimit(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("GET %s: status = %d, want %d", path, resp.StatusCode, http.StatusBadRequest)
 		}
+	}
+}
+
+// TestInspectionFlow_PhotosAttachOnCreateAndDetachOnUpdate is the
+// end-to-end proof of photo support: a caller can attach photos when
+// creating an inspection, see them come back on Get, and later remove
+// them via Update - exercised against a real cross-service HTTP call to
+// (a fake) media-service, mirroring hive-service's own image flow.
+func TestInspectionFlow_PhotosAttachOnCreateAndDetachOnUpdate(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	photo1 := uuid.New()
+	photo2 := uuid.New()
+	stack.media.own(photo1, photo2)
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
+		"hive_id":      hiveID.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "queen seen, brood pattern good",
+		"type":         "QUEEN",
+		"images":       []string{photo1.String(), photo2.String()},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create with photos: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var created inspectionhttp.Response
+	decodeJSON(t, resp, &created)
+	if len(created.Images) != 2 {
+		t.Fatalf("create: images = %v, want 2 entries", created.Images)
+	}
+	if !stack.media.calledWithQueryValue("ids", photo1.String()) {
+		t.Error("create did not verify photo1's ownership against media-service")
+	}
+
+	// Get reflects the same attached photos.
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/"+created.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var fetched inspectionhttp.Response
+	decodeJSON(t, resp, &fetched)
+	if len(fetched.Images) != 2 || fetched.Images[0].ImageURL == "" {
+		t.Fatalf("get: images = %v, want 2 entries with non-empty image_url", fetched.Images)
+	}
+
+	// Update with an empty images array detaches every photo (references
+	// only - it must not ask media-service to delete the underlying
+	// files).
+	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]any{
+		"inspected_at": testInspectedAt,
+		"notes":        "re-inspected",
+		"type":         "QUEEN",
+		"images":       []string{},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update clearing images: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var updated inspectionhttp.Response
+	decodeJSON(t, resp, &updated)
+	if len(updated.Images) != 0 {
+		t.Fatalf("update: images = %v, want empty", updated.Images)
+	}
+	if stack.media.calledDeleteWithQueryValue("ids", photo1.String()) {
+		t.Error("update clearing images must not delete the underlying media file")
+	}
+}
+
+// TestInspectionFlow_PhotosRejectForeignMedia proves an inspection can't
+// reference a media id that doesn't belong to the caller, verified
+// against a real cross-service HTTP call.
+func TestInspectionFlow_PhotosRejectForeignMedia(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+	foreignPhoto := uuid.New() // deliberately never own()'d
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
+		"hive_id":      hiveID.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "snooping",
+		"type":         "ROUTINE",
+		"images":       []string{foreignPhoto.String()},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create with foreign media: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+	errBody, _ := body["error"].(map[string]any)
+	fields, _ := errBody["fields"].(map[string]any)
+	if fields["images"] != "image_not_found" {
+		t.Fatalf("error fields = %v, want images: image_not_found", fields)
+	}
+}
+
+// TestInspectionFlow_DeleteByHive_DeletesAttachedMedia proves the
+// DeleteByHive cascade hard-deletes every media file referenced by the
+// inspections it removes, not just the inspection rows themselves.
+func TestInspectionFlow_DeleteByHive_DeletesAttachedMedia(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	photo := uuid.New()
+	stack.media.own(photo)
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
+		"hive_id":      hiveID.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "with a photo",
+		"type":         "ROUTINE",
+		"images":       []string{photo.String()},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodDelete, "/api/v1/hives/"+hiveID.String()+"/inspections", token, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DeleteByHive: status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+
+	if !stack.media.calledDeleteWithQueryValue("ids", photo.String()) {
+		t.Error("DeleteByHive did not hard-delete the inspection's attached media")
 	}
 }

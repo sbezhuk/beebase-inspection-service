@@ -33,6 +33,19 @@ type Config struct {
 	// only source of truth for that (transitively, for apiary ownership
 	// too): this service asks it, once, at creation time.
 	HiveServiceURL string
+
+	// PublicBaseURL is the gateway's externally reachable base URL, used
+	// to build the image_url for each entry in a response's `images`.
+	// Unlike every other *_URL setting in this service, it must resolve
+	// for the client, not just for server-to-server calls.
+	PublicBaseURL string
+
+	// MediaServiceURL is media-service's base URL. An inspection can
+	// reference already-uploaded media ids; this service asks
+	// media-service to verify ownership of newly-referenced ids on
+	// create/update, and to hard-delete an inspection's files when it's
+	// cascade-deleted alongside its hive.
+	MediaServiceURL string
 }
 
 // Load builds a Config from environment variables, falling back to
@@ -52,8 +65,10 @@ func Load() (*Config, error) {
 
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		AuthJWKSURL:    getEnv("AUTH_JWKS_URL", ""),
-		HiveServiceURL: getEnv("HIVE_SERVICE_URL", ""),
+		AuthJWKSURL:     getEnv("AUTH_JWKS_URL", ""),
+		HiveServiceURL:  getEnv("HIVE_SERVICE_URL", ""),
+		PublicBaseURL:   getEnv("PUBLIC_BASE_URL", ""),
+		MediaServiceURL: getEnv("MEDIA_SERVICE_URL", ""),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -64,6 +79,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.HiveServiceURL == "" {
 		return nil, fmt.Errorf("config: HIVE_SERVICE_URL is required")
+	}
+	if cfg.PublicBaseURL == "" {
+		return nil, fmt.Errorf("config: PUBLIC_BASE_URL is required")
+	}
+	if cfg.MediaServiceURL == "" {
+		return nil, fmt.Errorf("config: MEDIA_SERVICE_URL is required")
 	}
 
 	return cfg, nil

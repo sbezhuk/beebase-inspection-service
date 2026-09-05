@@ -570,7 +570,7 @@ func TestInspectionRepository_DeleteByHive_HardDeletesOnlyThatHivesInspections(t
 		t.Fatalf("soft-delete: %v", err)
 	}
 
-	count, err := repo.DeleteByHive(ctx, userID, hiveA)
+	_, count, err := repo.DeleteByHive(ctx, userID, hiveA)
 	if err != nil {
 		t.Fatalf("DeleteByHive: %v", err)
 	}
@@ -613,7 +613,7 @@ func TestInspectionRepository_DeleteByHive_ScopedToUser(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	count, err := repo.DeleteByHive(ctx, other, hiveID)
+	_, count, err := repo.DeleteByHive(ctx, other, hiveID)
 	if err != nil {
 		t.Fatalf("DeleteByHive by non-owner: %v", err)
 	}
@@ -638,11 +638,129 @@ func TestInspectionRepository_DeleteByHive_ZeroMatchesIsNotAnError(t *testing.T)
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	count, err := repo.DeleteByHive(ctx, uuid.New(), uuid.New())
+	images, count, err := repo.DeleteByHive(ctx, uuid.New(), uuid.New())
 	if err != nil {
 		t.Fatalf("DeleteByHive with no matches: %v", err)
 	}
 	if count != 0 {
 		t.Fatalf("count = %d, want 0", count)
+	}
+	if len(images) != 0 {
+		t.Fatalf("images = %v, want empty", images)
+	}
+}
+
+// TestInspectionRepository_ImagesRoundTripThroughCreateAndUpdate proves
+// the images column - inspection-service's own source of truth for
+// attached media - survives Create and Update, and stays a real empty
+// slice (never null) when there are no photos.
+func TestInspectionRepository_ImagesRoundTripThroughCreateAndUpdate(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	img1 := uuid.New()
+	img2 := uuid.New()
+
+	withoutImages := inspection.New(userID, hiveID, inspectedAt(), "No photos yet", inspection.TypeRoutine)
+	if err := repo.Create(ctx, withoutImages); err != nil {
+		t.Fatalf("Create without images: %v", err)
+	}
+	got, err := repo.GetByID(ctx, userID, withoutImages.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.Images) != 0 {
+		t.Fatalf("Images = %v, want empty (not null)", got.Images)
+	}
+
+	withImages := inspection.New(userID, hiveID, inspectedAt(), "Has photos", inspection.TypeRoutine)
+	withImages.Images = []uuid.UUID{img1, img2}
+	if err := repo.Create(ctx, withImages); err != nil {
+		t.Fatalf("Create with images: %v", err)
+	}
+	got, err = repo.GetByID(ctx, userID, withImages.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if len(got.Images) != 2 {
+		t.Fatalf("Images = %v, want [%s, %s]", got.Images, img1, img2)
+	}
+
+	got.Images = []uuid.UUID{img1}
+	got.Notes = "Has photos"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	updated, err := repo.GetByID(ctx, userID, withImages.ID)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if len(updated.Images) != 1 || updated.Images[0] != img1 {
+		t.Fatalf("Images after update = %v, want [%s]", updated.Images, img1)
+	}
+}
+
+// TestInspectionRepository_DeleteByHive_ReturnsUnionOfDeletedImages proves
+// DeleteByHive surfaces every deleted inspection's own Images, so the
+// application layer can hard-delete them from media-service too.
+func TestInspectionRepository_DeleteByHive_ReturnsUnionOfDeletedImages(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+	img1 := uuid.New()
+	img2 := uuid.New()
+	img3 := uuid.New()
+
+	a1 := inspection.New(userID, hiveA, inspectedAt(), "first", inspection.TypeRoutine)
+	a1.Images = []uuid.UUID{img1, img2}
+	a2 := inspection.New(userID, hiveA, inspectedAt(), "second", inspection.TypeRoutine)
+	a2.Images = []uuid.UUID{img3}
+	// Different hive: its images must not leak into hiveA's cascade.
+	b1 := inspection.New(userID, hiveB, inspectedAt(), "other hive", inspection.TypeRoutine)
+	b1.Images = []uuid.UUID{uuid.New()}
+	for _, i := range []*inspection.Inspection{a1, a2, b1} {
+		if err := repo.Create(ctx, i); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+
+	images, count, err := repo.DeleteByHive(ctx, userID, hiveA)
+	if err != nil {
+		t.Fatalf("DeleteByHive: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("DeleteByHive count = %d, want 2", count)
+	}
+
+	got := map[uuid.UUID]bool{}
+	for _, id := range images {
+		got[id] = true
+	}
+	for _, want := range []uuid.UUID{img1, img2, img3} {
+		if !got[want] {
+			t.Errorf("DeleteByHive images = %v, missing %s", images, want)
+		}
+	}
+	if len(images) != 3 {
+		t.Errorf("DeleteByHive images = %v, want 3 entries", images)
 	}
 }

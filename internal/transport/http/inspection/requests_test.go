@@ -83,6 +83,25 @@ func TestCreateRequest_Validate(t *testing.T) {
 	}
 }
 
+func TestCreateRequest_Validate_Images(t *testing.T) {
+	validHiveID := uuid.New().String()
+
+	if fields := (&CreateRequest{HiveID: validHiveID, InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE", Images: nil}).Validate(); len(fields) != 0 {
+		t.Errorf("nil images: expected no errors, got %v", fields)
+	}
+	if fields := (&CreateRequest{HiveID: validHiveID, InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE", Images: []string{}}).Validate(); len(fields) != 0 {
+		t.Errorf("empty images: expected no errors, got %v", fields)
+	}
+	if fields := (&CreateRequest{HiveID: validHiveID, InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE", Images: []string{uuid.New().String()}}).Validate(); len(fields) != 0 {
+		t.Errorf("valid image id: expected no errors, got %v", fields)
+	}
+
+	fields := (&CreateRequest{HiveID: validHiveID, InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE", Images: []string{"not-a-uuid"}}).Validate()
+	if code := fields["images"]; code != CodeImagesInvalid {
+		t.Errorf("images code = %q, want %q", code, CodeImagesInvalid)
+	}
+}
+
 func TestUpdateRequest_Validate(t *testing.T) {
 	if fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN"}).Validate(); len(fields) != 0 {
 		t.Errorf("expected no errors, got %v", fields)
@@ -101,5 +120,22 @@ func TestUpdateRequest_Validate(t *testing.T) {
 	fields = (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "not-a-type"}).Validate()
 	if code := fields["type"]; code != CodeTypeInvalid {
 		t.Errorf("type code = %q, want %q", code, CodeTypeInvalid)
+	}
+}
+
+func TestUpdateRequest_Validate_Images(t *testing.T) {
+	if fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN", Images: nil}).Validate(); len(fields) != 0 {
+		t.Errorf("nil images: expected no errors, got %v", fields)
+	}
+	if fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN", Images: []string{}}).Validate(); len(fields) != 0 {
+		t.Errorf("empty images: expected no errors, got %v", fields)
+	}
+	if fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN", Images: []string{uuid.New().String()}}).Validate(); len(fields) != 0 {
+		t.Errorf("valid image id: expected no errors, got %v", fields)
+	}
+
+	fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN", Images: []string{"not-a-uuid"}}).Validate()
+	if code := fields["images"]; code != CodeImagesInvalid {
+		t.Errorf("images code = %q, want %q", code, CodeImagesInvalid)
 	}
 }

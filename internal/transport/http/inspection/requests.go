@@ -26,6 +26,7 @@ const (
 	CodeNotesTooLong        = "notes_too_long"
 	CodeTypeRequired        = "type_required"
 	CodeTypeInvalid         = "type_invalid"
+	CodeImagesInvalid       = "images_invalid"
 )
 
 // validatable is implemented by every request DTO in this package.
@@ -59,6 +60,11 @@ type CreateRequest struct {
 	InspectedAt string `json:"inspected_at"` // RFC 3339
 	Notes       string `json:"notes"`
 	Type        string `json:"type"`
+	// Images is the set of already-uploaded media ids to attach
+	// immediately - unlike UpdateRequest.Images, there's no "leave alone"
+	// case here since there's nothing to leave alone yet, so an absent/
+	// empty images just means no photos.
+	Images []string `json:"images"`
 }
 
 func (r *CreateRequest) Validate() map[string]string {
@@ -73,6 +79,8 @@ func (r *CreateRequest) Validate() map[string]string {
 		}
 	}
 
+	validateImages(r.Images, fields)
+
 	return fields
 }
 
@@ -84,10 +92,30 @@ type UpdateRequest struct {
 	InspectedAt string `json:"inspected_at"`
 	Notes       string `json:"notes"`
 	Type        string `json:"type"`
+	// Images, when present (even as an empty array), is the desired
+	// final set of already-uploaded media IDs attached to this
+	// inspection; omitting the field (or sending JSON null) leaves
+	// currently attached media untouched. Go's json package already
+	// distinguishes "absent/null" (nil slice) from "[]" (non-nil, empty
+	// slice), which is exactly the distinction this needs.
+	Images []string `json:"images"`
 }
 
 func (r *UpdateRequest) Validate() map[string]string {
-	return validateFields(r.InspectedAt, r.Notes, r.Type)
+	fields := validateFields(r.InspectedAt, r.Notes, r.Type)
+	validateImages(r.Images, fields)
+	return fields
+}
+
+// validateImages checks that every id in images is a well-formed UUID,
+// setting fields["images"] on the first failure found.
+func validateImages(images []string, fields map[string]string) {
+	for _, id := range images {
+		if _, err := uuid.Parse(id); err != nil {
+			fields["images"] = CodeImagesInvalid
+			return
+		}
+	}
 }
 
 func validateFields(inspectedAt, notes, typ string) map[string]string {

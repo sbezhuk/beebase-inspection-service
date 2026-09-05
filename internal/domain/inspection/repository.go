@@ -44,6 +44,8 @@ type Repository interface {
 	// userID, including ones a prior soft-delete already marked gone.
 	// Used only when hive-service cascades a hive delete; a zero count is
 	// a normal outcome (the hive may simply have no inspections), not an
-	// error.
-	DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (int64, error)
+	// error. images is the union of every deleted inspection's own Images,
+	// so the caller can hard-delete them from media-service too - nothing
+	// else purges them once their inspection is gone.
+	DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (images []uuid.UUID, count int64, err error)
 }

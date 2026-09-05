@@ -33,18 +33,22 @@ const (
 	CodeInvalidInspectionID = "invalid_inspection_id"
 	CodeInvalidHiveID       = "invalid_hive_id"
 	CodeHiveNotFound        = "hive_not_found"
+	CodeImageNotFound       = "image_not_found"
 )
 
 // Handler exposes the inspection HTTP endpoints. Every method requires
 // the request to have already passed through httpmw.RequireAuth.
 type Handler struct {
-	service *appinspection.Service
-	log     *slog.Logger
+	service       *appinspection.Service
+	log           *slog.Logger
+	publicBaseURL string
 }
 
-// NewHandler returns a Handler backed by service.
-func NewHandler(service *appinspection.Service, log *slog.Logger) *Handler {
-	return &Handler{service: service, log: log}
+// NewHandler returns a Handler backed by service. publicBaseURL is the
+// gateway's externally reachable base URL, used to build each image's
+// image_url.
+func NewHandler(service *appinspection.Service, log *slog.Logger, publicBaseURL string) *Handler {
+	return &Handler{service: service, log: log, publicBaseURL: publicBaseURL}
 }
 
 // Create handles POST /inspections.
@@ -62,18 +66,24 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	hiveID, _ := uuid.Parse(req.HiveID)
 	inspectedAt, _ := time.Parse(time.RFC3339, req.InspectedAt)
 
+	images := make([]uuid.UUID, len(req.Images))
+	for i, s := range req.Images {
+		images[i], _ = uuid.Parse(s) // already validated by req.Validate
+	}
+
 	created, err := h.service.Create(r.Context(), userID, token, appinspection.CreateInput{
 		HiveID:      hiveID,
 		InspectedAt: inspectedAt,
 		Notes:       req.Notes,
 		Type:        inspection.Type(req.Type),
+		Images:      images,
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, newResponse(created))
+	httpx.WriteJSON(w, http.StatusCreated, newResponse(created, h.publicBaseURL))
 }
 
 // Get handles GET /inspections/{inspectionID}.
@@ -94,7 +104,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, newResponse(got))
+	httpx.WriteJSON(w, http.StatusOK, newResponse(got, h.publicBaseURL))
 }
 
 // List handles GET /inspections.
@@ -116,7 +126,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections), p, total))
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections, h.publicBaseURL), p, total))
 }
 
 // ListByHive handles GET /hives/{hiveID}/inspections.
@@ -144,12 +154,12 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections), p, total))
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections, h.publicBaseURL), p, total))
 }
 
 // Update handles PUT /inspections/{inspectionID}.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	userID, _, ok := h.requireAuth(w, r)
+	userID, token, ok := h.requireAuth(w, r)
 	if !ok {
 		return
 	}
@@ -165,17 +175,27 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	inspectedAt, _ := time.Parse(time.RFC3339, req.InspectedAt)
 
-	updated, err := h.service.Update(r.Context(), userID, inspectionID, appinspection.UpdateInput{
+	var images *[]uuid.UUID
+	if req.Images != nil {
+		parsed := make([]uuid.UUID, len(req.Images))
+		for i, s := range req.Images {
+			parsed[i], _ = uuid.Parse(s) // already validated by req.Validate
+		}
+		images = &parsed
+	}
+
+	updated, err := h.service.Update(r.Context(), userID, token, inspectionID, appinspection.UpdateInput{
 		InspectedAt: inspectedAt,
 		Notes:       req.Notes,
 		Type:        inspection.Type(req.Type),
+		Images:      images,
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, newResponse(updated))
+	httpx.WriteJSON(w, http.StatusOK, newResponse(updated, h.publicBaseURL))
 }
 
 // Delete handles DELETE /inspections/{inspectionID}.
@@ -202,7 +222,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 // every inspection belonging to hiveID, used by hive-service to cascade a
 // hive delete.
 func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
-	userID, _, ok := h.requireAuth(w, r)
+	userID, token, ok := h.requireAuth(w, r)
 	if !ok {
 		return
 	}
@@ -213,7 +233,7 @@ func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.service.DeleteByHive(r.Context(), userID, hiveID); err != nil {
+	if _, err := h.service.DeleteByHive(r.Context(), userID, token, hiveID); err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
@@ -253,6 +273,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeInspectionNotFound, "inspection not found")
 	case errors.Is(err, appinspection.ErrHiveNotFound):
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
+	case errors.Is(err, appinspection.ErrImageNotFound):
+		httpx.WriteValidationError(w, map[string]string{"images": CodeImageNotFound})
 	default:
 		httpx.WriteInternalError(w, h.log, err)
 	}

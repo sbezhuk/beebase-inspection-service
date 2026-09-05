@@ -16,6 +16,21 @@ info:
     hive-service's own check is itself transitive against apiary-service,
     this single call confirms the whole chain - inspection-service never
     queries hive or apiary ownership itself.
+
+    Photos and other files are uploaded directly to media-service (see its
+    OpenAPI spec) independently of any inspection - upload doesn't require
+    one to exist yet, and this service never receives file bytes. `images`
+    on an inspection is the set of media IDs this service itself stores
+    and returns - the source of truth for what's referenced, not a
+    media-service round trip - settable via POST (reference immediately on
+    creation) or PUT (replace the set wholesale). Every id is verified
+    against media-service (a plain ownership check, not a mutating call)
+    before being accepted; an id that doesn't exist, was deleted, or
+    belongs to a different user is rejected. There's no exclusivity
+    between hives/apiaries/inspections - the same media id may be
+    referenced by more than one. Removing an id from `images` only drops
+    the reference; it does not delete the underlying file (cascading a
+    hive delete does delete every file its inspections reference).
   version: 0.1.0
 servers:
   - url: http://localhost:8080
@@ -69,7 +84,10 @@ paths:
         Rejected with 404 hive_not_found if hive_id doesn't exist or
         doesn't belong to the caller (which also covers its apiary not
         belonging to the caller) — verified live against hive-service,
-        not trusted from the request.
+        not trusted from the request. images, if given, is verified
+        against media-service, not trusted from the request. Omitting
+        images (or sending an empty array) creates an inspection with no
+        photos.
       requestBody:
         required: true
         content:
@@ -82,7 +100,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InspectionResponse" }
         "400":
-          description: Request failed validation (including a missing or malformed hive_id, inspected_at, or type).
+          description: >
+            Request failed validation (including a missing or malformed
+            hive_id, inspected_at, or type), or images contains an id
+            that doesn't belong to the caller.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -181,6 +202,10 @@ paths:
         Full replacement (PUT semantics), not a partial patch: inspected_at,
         notes, and type are all set from the request body. An inspection
         can't be moved to a different hive — there's no hive_id here.
+        images is the one field exempt from full replacement's "always
+        set" rule: omitting it (or sending null) leaves the currently
+        attached photos untouched, while sending an array (including an
+        empty one) replaces the attached set wholesale.
       requestBody:
         required: true
         content:
@@ -193,7 +218,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/InspectionResponse" }
         "400":
-          description: inspectionId is not a valid UUID, or the request failed validation.
+          description: >
+            inspectionId is not a valid UUID, the request failed
+            validation, or images contains an id that doesn't belong to
+            the caller.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -309,6 +337,14 @@ components:
         inspected_at: { type: string, format: date-time, description: When the inspection took place (RFC 3339). }
         notes: { type: string, maxLength: 2000 }
         type: { $ref: "#/components/schemas/InspectionType" }
+        images:
+          type: array
+          items: { type: string, format: uuid }
+          description: >
+            Media IDs (returned by media-service's upload endpoint) to
+            reference immediately. Each must belong to the caller; omit
+            this field (or send an empty array) to create an inspection
+            with no photos.
 
     UpdateInspectionRequest:
       type: object
@@ -317,6 +353,32 @@ components:
         inspected_at: { type: string, format: date-time }
         notes: { type: string, maxLength: 2000 }
         type: { $ref: "#/components/schemas/InspectionType" }
+        images:
+          type: array
+          items: { type: string, format: uuid }
+          description: >
+            The desired final set of media IDs (returned by media-service's
+            upload endpoint) referenced by this inspection. Omit this
+            field (or send null) to leave the current set untouched; send
+            an array (including an empty one) to replace it wholesale.
+            Each id must belong to the caller. Dropping an id only removes
+            the reference - it does not delete the underlying file.
+
+    InspectionImage:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        image_url:
+          type: string
+          format: uri
+          description: >
+            The authenticated URL to fetch or display this image's
+            content from (media-service's GET /media/{id}/download,
+            reverse-proxied by the gateway). Built fresh on every
+            response - if the underlying file ever changes, this URL's
+            id stays the same but its content does not, so clients
+            should not cache a fetched image keyed only by this URL
+            without also checking for staleness.
 
     InspectionResponse:
       type: object
@@ -330,6 +392,10 @@ components:
           type: string
           description: Human-readable label for "type" (e.g. "Routine"), derived server-side.
           example: Routine
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/InspectionImage" }
+          description: The media currently attached to this inspection, in reference order.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -382,6 +448,9 @@ components:
               description: >
                 Field name to error code. Each value is a stable key (not a
                 human-readable message) meant to be localized client-side.
+                "images" carries "images_invalid" when an entry isn't a
+                well-formed UUID, or "image_not_found" when an entry is a
+                valid UUID that doesn't belong to the caller.
               additionalProperties:
                 type: string
                 enum:
@@ -393,6 +462,8 @@ components:
                   - notes_too_long
                   - type_required
                   - type_invalid
+                  - images_invalid
+                  - image_not_found
                   - invalid_page
                   - invalid_limit
               example: { hive_id: "hive_id_invalid" }

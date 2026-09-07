@@ -31,7 +31,7 @@ info:
     referenced by more than one. Removing an id from `images` only drops
     the reference; it does not delete the underlying file (cascading a
     hive delete does delete every file its inspections reference).
-  version: 0.1.0
+  version: 0.6.0
 servers:
   - url: http://localhost:8080
 

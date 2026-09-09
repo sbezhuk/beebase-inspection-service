@@ -1,6 +1,8 @@
 package inspection
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -137,5 +139,74 @@ func TestUpdateRequest_Validate_Images(t *testing.T) {
 	fields := (&UpdateRequest{InspectedAt: validInspectedAt, Notes: "ok", Type: "QUEEN", Images: []string{"not-a-uuid"}}).Validate()
 	if code := fields["images"]; code != CodeImagesInvalid {
 		t.Errorf("images code = %q, want %q", code, CodeImagesInvalid)
+	}
+}
+
+func TestParseSearch(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	cases := []struct {
+		name       string
+		query      string
+		wantSearch *string
+		wantCode   string
+	}{
+		{
+			name:       "omitted",
+			query:      "",
+			wantSearch: nil,
+		},
+		{
+			name:       "empty",
+			query:      "search=",
+			wantSearch: nil,
+		},
+		{
+			name:     "one char",
+			query:    "search=a",
+			wantCode: CodeInvalidSearch,
+		},
+		{
+			name:     "two chars",
+			query:    "search=ab",
+			wantCode: CodeInvalidSearch,
+		},
+		{
+			name:       "three chars",
+			query:      "search=abc",
+			wantSearch: strPtr("abc"),
+		},
+		{
+			name:       "long search",
+			query:      "search=queen%20seen",
+			wantSearch: strPtr("queen seen"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
+			s, fields := parseSearch(req, nil)
+			if tc.wantCode != "" {
+				if fields["search"] != tc.wantCode {
+					t.Fatalf("fields[search] = %q, want %q", fields["search"], tc.wantCode)
+				}
+				if s != nil {
+					t.Fatalf("search = %v, want nil", s)
+				}
+			} else {
+				if len(fields) != 0 {
+					t.Fatalf("unexpected fields: %v", fields)
+				}
+				if tc.wantSearch == nil && s != nil {
+					t.Fatalf("search = %v, want nil", s)
+				}
+				if tc.wantSearch != nil {
+					if s == nil || *s != *tc.wantSearch {
+						t.Fatalf("search = %v, want %v", s, *tc.wantSearch)
+					}
+				}
+			}
+		})
 	}
 }

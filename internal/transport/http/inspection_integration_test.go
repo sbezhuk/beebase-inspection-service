@@ -651,6 +651,10 @@ func TestInspectionFlow_ListInvalidPageAndLimit(t *testing.T) {
 		"/api/v1/hives/" + hiveID.String() + "/inspections?limit=0",
 		"/api/v1/hives/" + hiveID.String() + "/inspections?limit=101",
 		"/api/v1/hives/" + hiveID.String() + "/inspections?limit=abc",
+		"/api/v1/hives/" + hiveID.String() + "/inspections?search=a",
+		"/api/v1/hives/" + hiveID.String() + "/inspections?search=ab",
+		"/api/v1/inspections?search=a",
+		"/api/v1/inspections?search=ab",
 	}
 	for _, path := range cases {
 		resp := stack.request(t, http.MethodGet, path, token, nil)

@@ -134,7 +134,7 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestInspectionRepository_ListByUser_AcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestInspectionRepository_ListByUser_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// First page.
-	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2})
+	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Middle page.
-	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2})
+	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 2: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Last (partial) page.
-	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2})
+	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Page beyond available data.
-	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2})
+	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 10: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestInspectionRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -350,11 +350,11 @@ func TestInspectionRepository_ListByHive_StableOrdering(t *testing.T) {
 		ids[i] = insp.ID
 	}
 
-	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4})
+	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 1: %v", err)
 	}
-	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4})
+	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 2: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestInspectionRepository_ListByHive_WrongOwnerReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit})
+	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}

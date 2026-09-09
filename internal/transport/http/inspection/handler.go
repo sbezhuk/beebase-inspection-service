@@ -34,7 +34,10 @@ const (
 	CodeInvalidHiveID       = "invalid_hive_id"
 	CodeHiveNotFound        = "hive_not_found"
 	CodeImageNotFound       = "image_not_found"
+	CodeInvalidSearch       = "invalid_search"
 )
+
+const minSearchLength = 3
 
 // Handler exposes the inspection HTTP endpoints. Every method requires
 // the request to have already passed through httpmw.RequireAuth.
@@ -115,14 +118,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p, fields := pagination.ParseParams(r)
+	search, fields := parseSearch(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
-	}
-
-	var search *string
-	if s := r.URL.Query().Get("search"); s != "" {
-		search = &s
 	}
 
 	inspections, total, err := h.service.List(r.Context(), userID, p, search)
@@ -148,14 +147,10 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p, fields := pagination.ParseParams(r)
+	search, fields := parseSearch(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
-	}
-
-	var search *string
-	if s := r.URL.Query().Get("search"); s != "" {
-		search = &s
 	}
 
 	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search)
@@ -165,6 +160,21 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections, h.publicBaseURL), p, total))
+}
+
+func parseSearch(r *http.Request, fields map[string]string) (*string, map[string]string) {
+	s := r.URL.Query().Get("search")
+	if s == "" {
+		return nil, fields
+	}
+	if len(s) < minSearchLength {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["search"] = CodeInvalidSearch
+		return nil, fields
+	}
+	return &s, fields
 }
 
 // Update handles PUT /inspections/{inspectionID}.

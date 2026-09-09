@@ -120,7 +120,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inspections, total, err := h.service.List(r.Context(), userID, p)
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	inspections, total, err := h.service.List(r.Context(), userID, p, search)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -148,7 +153,12 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p)
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return

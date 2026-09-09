@@ -12,6 +12,11 @@ import (
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
+// minSearchLength is the minimum number of characters required for the
+// search term to be applied. Shorter terms produce noisy results and put
+// unnecessary load on the database.
+const minSearchLength = 3
+
 // InspectionRepository implements domain/inspection.Repository against
 // PostgreSQL. Every method scopes its query by user_id, so a user can
 // never read or write an inspection they don't own: there's no separate
@@ -70,27 +75,43 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 	return &i, nil
 }
 
-func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
-	const countQ = `
+func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
+	countQ := `
 		SELECT count(*)
 		FROM inspections
 		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
 	`
+	countArgs := []any{userID, hiveID}
 
-	var total int
-	if err := r.db.QueryRow(ctx, countQ, userID, hiveID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
-	}
-
-	const q = `
+	q := `
 		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $3 OFFSET $4
 	`
+	listArgs := []any{userID, hiveID}
 
-	rows, err := r.db.Query(ctx, q, userID, hiveID, p.Limit, p.Offset())
+	if search != nil && len(*search) >= minSearchLength {
+		pattern := "%" + *search + "%"
+		countQ += ` AND notes ILIKE $3`
+		countArgs = append(countArgs, pattern)
+		q += fmt.Sprintf(` AND notes ILIKE $3`)
+		q += fmt.Sprintf(`
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $4 OFFSET $5`)
+		listArgs = append(listArgs, pattern, p.Limit, p.Offset())
+	} else {
+		q += `
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $3 OFFSET $4`
+		listArgs = append(listArgs, p.Limit, p.Offset())
+	}
+
+	var total int
+	if err := r.db.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, q, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
 	}
@@ -111,27 +132,43 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 	return inspections, total, nil
 }
 
-func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params) ([]*inspection.Inspection, int, error) {
-	const countQ = `
+func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
+	countQ := `
 		SELECT count(*)
 		FROM inspections
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
+	countArgs := []any{userID}
 
-	var total int
-	if err := r.db.QueryRow(ctx, countQ, userID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
-	}
-
-	const q = `
+	q := `
 		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE user_id = $1 AND deleted_at IS NULL
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $2 OFFSET $3
 	`
+	listArgs := []any{userID}
 
-	rows, err := r.db.Query(ctx, q, userID, p.Limit, p.Offset())
+	if search != nil && len(*search) >= minSearchLength {
+		pattern := "%" + *search + "%"
+		countQ += ` AND notes ILIKE $2`
+		countArgs = append(countArgs, pattern)
+		q += fmt.Sprintf(` AND notes ILIKE $2`)
+		q += fmt.Sprintf(`
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $3 OFFSET $4`)
+		listArgs = append(listArgs, pattern, p.Limit, p.Offset())
+	} else {
+		q += `
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $2 OFFSET $3`
+		listArgs = append(listArgs, p.Limit, p.Offset())
+	}
+
+	var total int
+	if err := r.db.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, q, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
 	}

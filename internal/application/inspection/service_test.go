@@ -1013,3 +1013,377 @@ func TestDeleteByHive_DeletesAttachedMedia(t *testing.T) {
 		t.Error("DeleteByHive did not delete the inspection's attached media")
 	}
 }
+
+func TestCreate_WithImages_MaxLimit_Success(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	photos := make([]uuid.UUID, 5)
+	for i := range photos {
+		photos[i] = uuid.New()
+		media.own(photos[i])
+	}
+
+	ins, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection 5 photos",
+		Type:        inspection.TypeRoutine,
+		Images:      photos,
+	})
+	if err != nil {
+		t.Fatalf("Create with 5 photos failed: %v", err)
+	}
+	if len(ins.Images) != 5 {
+		t.Fatalf("Images length = %d, want 5", len(ins.Images))
+	}
+}
+
+func TestCreate_WithImages_ExceedsLimit_ReturnsMediaLimitReached(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	photos := make([]uuid.UUID, 6)
+	for i := range photos {
+		photos[i] = uuid.New()
+		media.own(photos[i])
+	}
+
+	_, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection 6 photos",
+		Type:        inspection.TypeRoutine,
+		Images:      photos,
+	})
+	if !errors.Is(err, appinspection.ErrMediaLimitReached) {
+		t.Fatalf("expected ErrMediaLimitReached for 6 photos, got: %v", err)
+	}
+}
+
+func TestCreate_WithImages_DuplicatesCountTowardUniqueLimit(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	photos := make([]uuid.UUID, 5)
+	for i := range photos {
+		photos[i] = uuid.New()
+		media.own(photos[i])
+	}
+	withDupes := append(photos, photos[0])
+
+	ins, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection 5 unique photos with dupe",
+		Type:        inspection.TypeRoutine,
+		Images:      withDupes,
+	})
+	if err != nil {
+		t.Fatalf("Create with 5 unique photos failed: %v", err)
+	}
+	if len(ins.Images) != 5 {
+		t.Fatalf("Images length = %d, want 5", len(ins.Images))
+	}
+}
+
+func TestUpdate_WithImages_MaxLimit_Success(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection",
+		Type:        inspection.TypeRoutine,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	photos := make([]uuid.UUID, 5)
+	for i := range photos {
+		photos[i] = uuid.New()
+		media.own(photos[i])
+	}
+
+	updated, err := svc.Update(context.Background(), userID, token, created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection",
+		Type:        inspection.TypeRoutine,
+		Images:      &photos,
+	})
+	if err != nil {
+		t.Fatalf("Update with 5 photos failed: %v", err)
+	}
+	if len(updated.Images) != 5 {
+		t.Fatalf("Images length = %d, want 5", len(updated.Images))
+	}
+}
+
+func TestUpdate_WithImages_ExceedsLimit_ReturnsMediaLimitReached(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection",
+		Type:        inspection.TypeRoutine,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	photos := make([]uuid.UUID, 6)
+	for i := range photos {
+		photos[i] = uuid.New()
+		media.own(photos[i])
+	}
+
+	_, err = svc.Update(context.Background(), userID, token, created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection",
+		Type:        inspection.TypeRoutine,
+		Images:      &photos,
+	})
+	if !errors.Is(err, appinspection.ErrMediaLimitReached) {
+		t.Fatalf("expected ErrMediaLimitReached for 6 photos on update, got: %v", err)
+	}
+}
+
+func TestUpdate_WithExistingImages_ExceedsLimit_PreservesExistingImages(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	initialPhotos := make([]uuid.UUID, 5)
+	for i := range initialPhotos {
+		initialPhotos[i] = uuid.New()
+		media.own(initialPhotos[i])
+	}
+
+	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection with 5 photos",
+		Type:        inspection.TypeRoutine,
+		Images:      initialPhotos,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	tooManyPhotos := make([]uuid.UUID, 6)
+	for i := range tooManyPhotos {
+		tooManyPhotos[i] = uuid.New()
+		media.own(tooManyPhotos[i])
+	}
+
+	_, err = svc.Update(context.Background(), userID, token, created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection updated notes",
+		Type:        inspection.TypeRoutine,
+		Images:      &tooManyPhotos,
+	})
+	if !errors.Is(err, appinspection.ErrMediaLimitReached) {
+		t.Fatalf("expected ErrMediaLimitReached, got %v", err)
+	}
+
+	persisted, err := svc.Get(context.Background(), userID, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(persisted.Images) != 5 {
+		t.Fatalf("expected 5 photos preserved, got %d", len(persisted.Images))
+	}
+	for i, id := range initialPhotos {
+		if persisted.Images[i] != id {
+			t.Fatalf("photo %d changed: got %v, want %v", i, persisted.Images[i], id)
+		}
+	}
+}
+
+func TestUpdate_WithExistingImages_NilImages_PreservesExistingImages(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	initialPhotos := make([]uuid.UUID, 5)
+	for i := range initialPhotos {
+		initialPhotos[i] = uuid.New()
+		media.own(initialPhotos[i])
+	}
+
+	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection with 5 photos",
+		Type:        inspection.TypeRoutine,
+		Images:      initialPhotos,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := svc.Update(context.Background(), userID, token, created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(),
+		Notes:       "Renamed Inspection",
+		Type:        inspection.TypeRoutine,
+		Images:      nil,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(updated.Images) != 5 {
+		t.Fatalf("expected 5 photos preserved, got %d", len(updated.Images))
+	}
+
+	persisted, err := svc.Get(context.Background(), userID, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(persisted.Images) != 5 {
+		t.Fatalf("expected 5 photos in DB, got %d", len(persisted.Images))
+	}
+}
+
+func TestUpdate_WithExistingImages_ReplacesUpToLimit_Success(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	initialPhotos := make([]uuid.UUID, 5)
+	for i := range initialPhotos {
+		initialPhotos[i] = uuid.New()
+		media.own(initialPhotos[i])
+	}
+
+	created, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection with 5 initial photos",
+		Type:        inspection.TypeRoutine,
+		Images:      initialPhotos,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	newPhotos := make([]uuid.UUID, 5)
+	for i := range newPhotos {
+		newPhotos[i] = uuid.New()
+		media.own(newPhotos[i])
+	}
+
+	updated, err := svc.Update(context.Background(), userID, token, created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection with 5 replaced photos",
+		Type:        inspection.TypeRoutine,
+		Images:      &newPhotos,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(updated.Images) != 5 {
+		t.Fatalf("expected 5 photos, got %d", len(updated.Images))
+	}
+	for i, id := range newPhotos {
+		if updated.Images[i] != id {
+			t.Fatalf("photo %d mismatch: got %v, want %v", i, updated.Images[i], id)
+		}
+	}
+}
+
+func TestMediaLimit_IndependentPerInspection(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	media := newFakeMediaClient()
+	svc := appinspection.NewService(repo, verifier, media)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	photos1 := make([]uuid.UUID, 5)
+	photos2 := make([]uuid.UUID, 5)
+	for i := range photos1 {
+		photos1[i] = uuid.New()
+		media.own(photos1[i])
+		photos2[i] = uuid.New()
+		media.own(photos2[i])
+	}
+
+	ins1, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection 1",
+		Type:        inspection.TypeRoutine,
+		Images:      photos1,
+	})
+	if err != nil {
+		t.Fatalf("Create inspection 1 with 5 photos: %v", err)
+	}
+
+	ins2, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID:      hiveID,
+		InspectedAt: inspectedAt(),
+		Notes:       "Inspection 2",
+		Type:        inspection.TypeRoutine,
+		Images:      photos2,
+	})
+	if err != nil {
+		t.Fatalf("Create inspection 2 with 5 photos: %v", err)
+	}
+
+	if len(ins1.Images) != 5 || len(ins2.Images) != 5 {
+		t.Fatalf("expected both inspections to have 5 photos, got %d and %d", len(ins1.Images), len(ins2.Images))
+	}
+}
+
+

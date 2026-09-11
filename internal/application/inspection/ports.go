@@ -34,3 +34,9 @@ type MediaClient interface {
 	// inspections under a hive are being cascade-deleted (DeleteByHive).
 	DeleteByIDs(ctx context.Context, accessToken string, ids []uuid.UUID) error
 }
+
+const (
+	// MaxMediaAttachments is the maximum number of media attachments allowed per inspection.
+	MaxMediaAttachments = 5
+)
+

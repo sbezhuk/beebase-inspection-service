@@ -18,3 +18,8 @@ var ErrHiveNotFound = errors.New("hive not found")
 // distinguishing why, by the same non-leaking convention
 // inspection.ErrNotFound already follows.
 var ErrImageNotFound = errors.New("image not found")
+
+// ErrMediaLimitReached is returned when an attempt is made to attach more
+// photos than permitted by the media attachment limit.
+var ErrMediaLimitReached = errors.New("media limit reached")
+

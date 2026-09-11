@@ -35,6 +35,7 @@ const (
 	CodeHiveNotFound        = "hive_not_found"
 	CodeImageNotFound       = "image_not_found"
 	CodeInvalidSearch       = "invalid_search"
+	CodeMediaLimitReached   = "media_limit_reached"
 )
 
 const minSearchLength = 3
@@ -295,6 +296,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
 	case errors.Is(err, appinspection.ErrImageNotFound):
 		httpx.WriteValidationError(w, map[string]string{"images": CodeImageNotFound})
+	case errors.Is(err, appinspection.ErrMediaLimitReached):
+		httpx.WriteError(w, http.StatusBadRequest, CodeMediaLimitReached, "maximum 5 photos allowed")
 	default:
 		httpx.WriteInternalError(w, h.log, err)
 	}

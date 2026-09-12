@@ -35,6 +35,7 @@ const (
 	CodeHiveNotFound        = "hive_not_found"
 	CodeImageNotFound       = "image_not_found"
 	CodeInvalidSearch       = "invalid_search"
+	CodeInvalidSortOrder    = "invalid_sort_order"
 	CodeMediaLimitReached   = "media_limit_reached"
 )
 
@@ -121,12 +122,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	p, fields := pagination.ParseParams(r)
 	search, fields := parseSearch(r, fields)
 	typ, fields := parseType(r, fields)
+	sortOrder, fields := parseSortOrder(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	inspections, total, err := h.service.List(r.Context(), userID, p, search, typ)
+	inspections, total, err := h.service.List(r.Context(), userID, p, search, typ, sortOrder)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -151,12 +153,13 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 	p, fields := pagination.ParseParams(r)
 	search, fields := parseSearch(r, fields)
 	typ, fields := parseType(r, fields)
+	sortOrder, fields := parseSortOrder(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search, typ)
+	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search, typ, sortOrder)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -197,6 +200,27 @@ func parseType(r *http.Request, fields map[string]string) (*inspection.Type, map
 		return nil, fields
 	}
 	return &t, fields
+}
+
+// parseSortOrder reads the optional "sortOrder" query parameter, which
+// requests the list be ordered by creation date instead of the endpoint's
+// default order (which today is the inspection's own business date,
+// InspectedAt). A missing value means "use the default order" (nil); an
+// invalid value ("asc"/"desc" are the only accepted ones) is reported as a
+// validation error the same way parseSearch reports one.
+func parseSortOrder(r *http.Request, fields map[string]string) (*string, map[string]string) {
+	s := r.URL.Query().Get("sortOrder")
+	if s == "" {
+		return nil, fields
+	}
+	if s != "asc" && s != "desc" {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["sortOrder"] = CodeInvalidSortOrder
+		return nil, fields
+	}
+	return &s, fields
 }
 
 // Update handles PUT /inspections/{inspectionID}.

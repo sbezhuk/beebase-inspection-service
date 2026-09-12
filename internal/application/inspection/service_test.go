@@ -36,6 +36,32 @@ func matchesSearch(i *inspection.Inspection, search *string) bool {
 	return strings.Contains(strings.ToLower(i.Notes), strings.ToLower(*search))
 }
 
+// sortInspections mirrors the real repository's ORDER BY: by default,
+// InspectedAt ascending; when sortOrder is non-nil ("asc"/"desc"), by
+// CreatedAt in that direction instead. Either way id is the tiebreaker,
+// tied to the same direction as the primary sort.
+func sortInspections(all []*inspection.Inspection, sortOrder *string) {
+	if sortOrder == nil {
+		sort.Slice(all, func(i, j int) bool {
+			if !all[i].InspectedAt.Equal(all[j].InspectedAt) {
+				return all[i].InspectedAt.Before(all[j].InspectedAt)
+			}
+			return all[i].ID.String() < all[j].ID.String()
+		})
+		return
+	}
+	desc := *sortOrder == "desc"
+	sort.Slice(all, func(i, j int) bool {
+		if desc {
+			i, j = j, i
+		}
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+		return all[i].ID.String() < all[j].ID.String()
+	})
+}
+
 func (f *fakeRepo) Create(_ context.Context, i *inspection.Inspection) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -55,7 +81,7 @@ func (f *fakeRepo) GetByID(_ context.Context, userID, inspectionID uuid.UUID) (*
 	return &cp, nil
 }
 
-func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*inspection.Inspection
@@ -65,12 +91,7 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 			all = append(all, &cp)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool {
-		if !all[i].InspectedAt.Equal(all[j].InspectedAt) {
-			return all[i].InspectedAt.Before(all[j].InspectedAt)
-		}
-		return all[i].ID.String() < all[j].ID.String()
-	})
+	sortInspections(all, sortOrder)
 
 	total := len(all)
 	start := p.Offset()
@@ -85,7 +106,7 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 	return all[start:end], total, nil
 }
 
-func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*inspection.Inspection
@@ -95,12 +116,7 @@ func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.
 			all = append(all, &cp)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool {
-		if !all[i].InspectedAt.Equal(all[j].InspectedAt) {
-			return all[i].InspectedAt.Before(all[j].InspectedAt)
-		}
-		return all[i].ID.String() < all[j].ID.String()
-	})
+	sortInspections(all, sortOrder)
 
 	total := len(all)
 	start := p.Offset()
@@ -387,7 +403,7 @@ func TestListByHive_ReturnsOnlyOwnInspectionsForThatHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := svc.ListByHive(context.Background(), userA, hiveA1, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, total, err := svc.ListByHive(context.Background(), userA, hiveA1, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -420,7 +436,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		}
 	}
 
-	firstPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil)
+	firstPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -431,7 +447,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 1 returned %d inspections, want 2", len(firstPage))
 	}
 
-	lastPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil)
+	lastPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -442,7 +458,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 3 returned %d inspections, want 1", len(lastPage))
 	}
 
-	beyond, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil)
+	beyond, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 10: %v", err)
 	}
@@ -457,7 +473,7 @@ func TestListByHive_Pagination(t *testing.T) {
 func TestListByHive_Empty(t *testing.T) {
 	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
 
-	list, total, err := svc.ListByHive(context.Background(), uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, total, err := svc.ListByHive(context.Background(), uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -484,7 +500,7 @@ func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, _, err := svc.ListByHive(context.Background(), other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, _, err := svc.ListByHive(context.Background(), other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -524,7 +540,7 @@ func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -557,7 +573,7 @@ func TestList_Pagination(t *testing.T) {
 		}
 	}
 
-	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil, nil)
+	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -572,7 +588,7 @@ func TestList_Pagination(t *testing.T) {
 func TestList_Empty(t *testing.T) {
 	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
 
-	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -604,7 +620,7 @@ func TestListByHive_FilterByType(t *testing.T) {
 	}
 
 	queen := inspection.TypeQueen
-	list, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen)
+	list, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil)
 	if err != nil {
 		t.Fatalf("ListByHive type=QUEEN: %v", err)
 	}
@@ -612,7 +628,7 @@ func TestListByHive_FilterByType(t *testing.T) {
 		t.Fatalf("ListByHive type=QUEEN: total=%d list=%v, want a single QUEEN inspection", total, list)
 	}
 
-	all, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	all, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive without type filter: %v", err)
 	}
@@ -652,7 +668,7 @@ func TestList_FilterByType(t *testing.T) {
 	}
 
 	queen := inspection.TypeQueen
-	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen)
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil)
 	if err != nil {
 		t.Fatalf("List type=QUEEN: %v", err)
 	}
@@ -694,7 +710,7 @@ func TestListByHive_FilterByTypeCombinedWithSearchAndPagination(t *testing.T) {
 
 	queen := inspection.TypeQueen
 	search := "healthy"
-	page, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, &search, &queen)
+	page, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, &search, &queen, nil)
 	if err != nil {
 		t.Fatalf("ListByHive type+search+pagination: %v", err)
 	}
@@ -861,7 +877,7 @@ func TestDeleteByHive_DeletesOnlyThatHivesInspections(t *testing.T) {
 		t.Fatalf("DeleteByHive count = %d, want 2", count)
 	}
 
-	list, total, err := svc.ListByHive(context.Background(), userID, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	list, total, err := svc.ListByHive(context.Background(), userID, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}

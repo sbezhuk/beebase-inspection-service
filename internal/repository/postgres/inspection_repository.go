@@ -17,6 +17,23 @@ import (
 // unnecessary load on the database.
 const minSearchLength = 3
 
+// createdAtOrderClause returns the ORDER BY clause for a list query. When
+// sortOrder is nil, defaultClause (the query's normal, pre-existing order)
+// is used unchanged; otherwise the list is ordered by creation date in the
+// requested direction, with id tied to the same direction as a stable
+// tiebreaker (matching the convention every other ORDER BY in this
+// repository already follows).
+func createdAtOrderClause(sortOrder *string, defaultClause string) string {
+	if sortOrder == nil {
+		return defaultClause
+	}
+	dir := "ASC"
+	if *sortOrder == "desc" {
+		dir = "DESC"
+	}
+	return fmt.Sprintf("created_at %s, id %s", dir, dir)
+}
+
 // InspectionRepository implements domain/inspection.Repository against
 // PostgreSQL. Every method scopes its query by user_id, so a user can
 // never read or write an inspection they don't own: there's no separate
@@ -75,19 +92,19 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 	return &i, nil
 }
 
-func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
-	return r.list(ctx, userID, &hiveID, p, search, typ)
+func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
+	return r.list(ctx, userID, &hiveID, p, search, typ, sortOrder)
 }
 
-func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
-	return r.list(ctx, userID, nil, p, search, typ)
+func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
+	return r.list(ctx, userID, nil, p, search, typ, sortOrder)
 }
 
 // list is the shared implementation behind ListByHive (hiveID non-nil) and
 // ListByUser (hiveID nil). search and typ are optional filters applied
 // together with AND semantics; placeholders are numbered dynamically since
 // which filters are present varies per call.
-func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveID *uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveID *uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	countQ := `
 		SELECT count(*)
 		FROM inspections
@@ -131,8 +148,8 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 	}
 
 	q += fmt.Sprintf(`
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`, createdAtOrderClause(sortOrder, "inspected_at ASC, id ASC"), argIdx, argIdx+1)
 	listArgs = append(listArgs, p.Limit, p.Offset())
 
 	var total int

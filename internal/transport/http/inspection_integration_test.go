@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/hiveclient"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/mediaclient"
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
@@ -655,6 +656,9 @@ func TestInspectionFlow_ListInvalidPageAndLimit(t *testing.T) {
 		"/api/v1/hives/" + hiveID.String() + "/inspections?search=ab",
 		"/api/v1/inspections?search=a",
 		"/api/v1/inspections?search=ab",
+		"/api/v1/hives/" + hiveID.String() + "/inspections?type=swarm",
+		"/api/v1/hives/" + hiveID.String() + "/inspections?type=routine", // lowercase isn't accepted, only the exact enum values
+		"/api/v1/inspections?type=swarm",
 	}
 	for _, path := range cases {
 		resp := stack.request(t, http.MethodGet, path, token, nil)
@@ -915,3 +919,228 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 	}
 }
 
+// seedOneOfEachType creates one inspection of every supported
+// InspectionType under hiveID for token, returning the created responses in
+// the same order as inspection.Types.
+func seedOneOfEachType(t *testing.T, stack *testStack, token string, hiveID uuid.UUID) []inspectionhttp.Response {
+	t.Helper()
+
+	created := make([]inspectionhttp.Response, len(inspection.Types))
+	for i, typ := range inspection.Types {
+		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+			"hive_id":      hiveID.String(),
+			"inspected_at": testInspectedAt,
+			"notes":        string(typ) + " inspection",
+			"type":         string(typ),
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create %s: status = %d, want %d", typ, resp.StatusCode, http.StatusCreated)
+		}
+		decodeJSON(t, resp, &created[i])
+	}
+	return created
+}
+
+// TestInspectionFlow_ListByHive_FilterByType is the end-to-end proof that
+// GET /api/v1/hives/{hiveId}/inspections?type= filters correctly for every
+// supported InspectionType, and that omitting it returns every type.
+func TestInspectionFlow_ListByHive_FilterByType(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	seedOneOfEachType(t, stack, token, hiveID)
+
+	for _, typ := range inspection.Types {
+		resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?type="+string(typ), token, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("list type=%s: status = %d, want %d", typ, resp.StatusCode, http.StatusOK)
+		}
+		var page pagination.Response[inspectionhttp.Response]
+		decodeJSON(t, resp, &page)
+		if page.Pagination.Total != 1 || len(page.Items) != 1 {
+			t.Fatalf("list type=%s: total=%d items=%d, want 1 and 1", typ, page.Pagination.Total, len(page.Items))
+		}
+		if page.Items[0].Type != typ {
+			t.Fatalf("list type=%s: got %s", typ, page.Items[0].Type)
+		}
+	}
+
+	// Omitting type returns every seeded inspection, unfiltered.
+	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list without type: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var all pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &all)
+	if all.Pagination.Total != len(inspection.Types) || len(all.Items) != len(inspection.Types) {
+		t.Fatalf("list without type: total=%d items=%d, want %d", all.Pagination.Total, len(all.Items), len(inspection.Types))
+	}
+}
+
+// TestInspectionFlow_List_FilterByType mirrors
+// TestInspectionFlow_ListByHive_FilterByType for the flat
+// GET /api/v1/inspections list, across every hive the caller owns.
+func TestInspectionFlow_List_FilterByType(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	seedOneOfEachType(t, stack, token, hiveID)
+
+	resp := stack.request(t, http.MethodGet, "/api/v1/inspections?type=BROOD", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list type=BROOD: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &page)
+	if page.Pagination.Total != 1 || len(page.Items) != 1 || page.Items[0].Type != "BROOD" {
+		t.Fatalf("list type=BROOD: %+v, want a single BROOD inspection", page)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list without type: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var all pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &all)
+	if all.Pagination.Total != len(inspection.Types) {
+		t.Fatalf("list without type: total = %d, want %d", all.Pagination.Total, len(inspection.Types))
+	}
+}
+
+// TestInspectionFlow_ListFilterByType_InvalidValueRejected proves an
+// unsupported type value is rejected with the same validation_error
+// convention as every other field, on both list endpoints.
+func TestInspectionFlow_ListFilterByType_InvalidValueRejected(t *testing.T) {
+	stack := newTestStack(t)
+	token := stack.tokenFor(t, uuid.New())
+	hiveID := uuid.New()
+
+	for _, path := range []string{
+		"/api/v1/hives/" + hiveID.String() + "/inspections?type=SWARM",
+		"/api/v1/inspections?type=SWARM",
+	} {
+		resp := stack.request(t, http.MethodGet, path, token, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("GET %s: status = %d, want %d", path, resp.StatusCode, http.StatusBadRequest)
+		}
+		var body map[string]any
+		decodeJSON(t, resp, &body)
+		errBody, _ := body["error"].(map[string]any)
+		if errBody["code"] != "validation_error" {
+			t.Fatalf("GET %s: error code = %v, want validation_error", path, errBody["code"])
+		}
+		fields, _ := errBody["fields"].(map[string]any)
+		if fields["type"] != "type_invalid" {
+			t.Fatalf("GET %s: fields = %v, want type: type_invalid", path, fields)
+		}
+	}
+}
+
+// TestInspectionFlow_ListFilterByType_CombinedWithSearchAndPagination
+// proves type combines with search and pagination using AND semantics, all
+// the way through the HTTP layer.
+func TestInspectionFlow_ListFilterByType_CombinedWithSearchAndPagination(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	for i := 0; i < 3; i++ {
+		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+			"hive_id":      hiveID.String(),
+			"inspected_at": testInspectedAt,
+			"notes":        "queen seen, healthy",
+			"type":         "QUEEN",
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create matching %d: status = %d, want %d", i, resp.StatusCode, http.StatusCreated)
+		}
+	}
+	// Wrong type, same notes: must be excluded by the type filter.
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "queen seen, healthy", "type": "BROOD",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create wrong-type: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	// Right type, notes that don't match: must be excluded by the search filter.
+	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "nothing notable", "type": "QUEEN",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create wrong-notes: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?type=QUEEN&search=healthy&page=1&limit=2", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list type+search+pagination: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &page)
+	if page.Pagination.Total != 3 {
+		t.Fatalf("list type+search+pagination: total = %d, want 3", page.Pagination.Total)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("list type+search+pagination: page len = %d, want 2", len(page.Items))
+	}
+	for _, item := range page.Items {
+		if item.Type != "QUEEN" || item.Notes != "queen seen, healthy" {
+			t.Errorf("unexpected result %+v", item)
+		}
+	}
+}
+
+// TestInspectionFlow_ListFilterByType_RespectsOwnership proves the type
+// filter never surfaces another user's inspections - the existing
+// authorization guarantee holds unchanged with the new filter applied.
+func TestInspectionFlow_ListFilterByType_RespectsOwnership(t *testing.T) {
+	stack := newTestStack(t)
+	owner := uuid.New()
+	other := uuid.New()
+	hiveID := uuid.New()
+	ownerToken := stack.tokenFor(t, owner)
+	otherToken := stack.tokenFor(t, other)
+	stack.hive.allow(ownerToken, hiveID)
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", ownerToken, map[string]string{
+		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "owner's queen check", "type": "QUEEN",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	// The other user has no hive access at all, so both list endpoints must
+	// come back empty for them, type filter or not - never the owner's data.
+	for _, path := range []string{
+		"/api/v1/inspections?type=QUEEN",
+		"/api/v1/hives/" + hiveID.String() + "/inspections?type=QUEEN",
+	} {
+		resp := stack.request(t, http.MethodGet, path, otherToken, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s as other user: status = %d, want %d", path, resp.StatusCode, http.StatusOK)
+		}
+		var page pagination.Response[inspectionhttp.Response]
+		decodeJSON(t, resp, &page)
+		if len(page.Items) != 0 || page.Pagination.Total != 0 {
+			t.Fatalf("GET %s as other user leaked data: %+v", path, page)
+		}
+	}
+
+	// The owner's own filtered list still finds it.
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections?type=QUEEN", ownerToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list as owner: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &page)
+	if page.Pagination.Total != 1 {
+		t.Fatalf("list as owner: total = %d, want 1", page.Pagination.Total)
+	}
+}

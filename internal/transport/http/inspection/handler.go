@@ -120,12 +120,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	p, fields := pagination.ParseParams(r)
 	search, fields := parseSearch(r, fields)
+	typ, fields := parseType(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	inspections, total, err := h.service.List(r.Context(), userID, p, search)
+	inspections, total, err := h.service.List(r.Context(), userID, p, search, typ)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -149,12 +150,13 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 
 	p, fields := pagination.ParseParams(r)
 	search, fields := parseSearch(r, fields)
+	typ, fields := parseType(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search)
+	inspections, total, err := h.service.ListByHive(r.Context(), userID, hiveID, p, search, typ)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -176,6 +178,25 @@ func parseSearch(r *http.Request, fields map[string]string) (*string, map[string
 		return nil, fields
 	}
 	return &s, fields
+}
+
+// parseType reads the optional "type" query parameter, validating it
+// against the same InspectionType enum CreateRequest/UpdateRequest.Validate
+// use. An absent value means no filter.
+func parseType(r *http.Request, fields map[string]string) (*inspection.Type, map[string]string) {
+	raw := r.URL.Query().Get("type")
+	if raw == "" {
+		return nil, fields
+	}
+	t := inspection.Type(raw)
+	if !t.Valid() {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["type"] = CodeTypeInvalid
+		return nil, fields
+	}
+	return &t, fields
 }
 
 // Update handles PUT /inspections/{inspectionID}.

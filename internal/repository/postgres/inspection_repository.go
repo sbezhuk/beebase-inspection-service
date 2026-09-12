@@ -75,93 +75,65 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 	return &i, nil
 }
 
-func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
-	countQ := `
-		SELECT count(*)
-		FROM inspections
-		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
-	`
-	countArgs := []any{userID, hiveID}
-
-	q := `
-		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
-		FROM inspections
-		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
-	`
-	listArgs := []any{userID, hiveID}
-
-	if search != nil && len(*search) >= minSearchLength {
-		pattern := "%" + *search + "%"
-		countQ += ` AND notes ILIKE $3`
-		countArgs = append(countArgs, pattern)
-		q += fmt.Sprintf(` AND notes ILIKE $3`)
-		q += fmt.Sprintf(`
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $4 OFFSET $5`)
-		listArgs = append(listArgs, pattern, p.Limit, p.Offset())
-	} else {
-		q += `
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $3 OFFSET $4`
-		listArgs = append(listArgs, p.Limit, p.Offset())
-	}
-
-	var total int
-	if err := r.db.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("postgres: count inspections: %w", err)
-	}
-
-	rows, err := r.db.Query(ctx, q, listArgs...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
-	}
-	defer rows.Close()
-
-	inspections := []*inspection.Inspection{}
-	for rows.Next() {
-		var i inspection.Inspection
-		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.Images, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt); err != nil {
-			return nil, 0, fmt.Errorf("postgres: scan inspection: %w", err)
-		}
-		inspections = append(inspections, &i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("postgres: list inspections: %w", err)
-	}
-
-	return inspections, total, nil
+func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+	return r.list(ctx, userID, &hiveID, p, search, typ)
 }
 
-func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
+func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+	return r.list(ctx, userID, nil, p, search, typ)
+}
+
+// list is the shared implementation behind ListByHive (hiveID non-nil) and
+// ListByUser (hiveID nil). search and typ are optional filters applied
+// together with AND semantics; placeholders are numbered dynamically since
+// which filters are present varies per call.
+func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveID *uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
 	countQ := `
 		SELECT count(*)
+		FROM inspections
+		WHERE user_id = $1 AND deleted_at IS NULL
+	`
+	q := `
+		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
 		FROM inspections
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
 	countArgs := []any{userID}
+	argIdx := 2
 
-	q := `
-		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
-		FROM inspections
-		WHERE user_id = $1 AND deleted_at IS NULL
-	`
-	listArgs := []any{userID}
+	if hiveID != nil {
+		cond := fmt.Sprintf(" AND hive_id = $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *hiveID)
+		argIdx++
+	}
+
+	if typ != nil {
+		cond := fmt.Sprintf(" AND type = $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *typ)
+		argIdx++
+	}
+
+	listArgs := make([]any, len(countArgs))
+	copy(listArgs, countArgs)
 
 	if search != nil && len(*search) >= minSearchLength {
 		pattern := "%" + *search + "%"
-		countQ += ` AND notes ILIKE $2`
+		cond := fmt.Sprintf(" AND notes ILIKE $%d", argIdx)
+		countQ += cond
+		q += cond
 		countArgs = append(countArgs, pattern)
-		q += fmt.Sprintf(` AND notes ILIKE $2`)
-		q += fmt.Sprintf(`
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $3 OFFSET $4`)
-		listArgs = append(listArgs, pattern, p.Limit, p.Offset())
-	} else {
-		q += `
-		ORDER BY inspected_at ASC, id ASC
-		LIMIT $2 OFFSET $3`
-		listArgs = append(listArgs, p.Limit, p.Offset())
+		listArgs = append(listArgs, pattern)
+		argIdx++
 	}
+
+	q += fmt.Sprintf(`
+		ORDER BY inspected_at ASC, id ASC
+		LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	listArgs = append(listArgs, p.Limit, p.Offset())
 
 	var total int
 	if err := r.db.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,15 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{byID: map[uuid.UUID]*inspection.Inspection{}}
 }
 
+// matchesSearch mirrors the real repository's case-insensitive substring
+// match of search against notes; a nil search matches everything.
+func matchesSearch(i *inspection.Inspection, search *string) bool {
+	if search == nil {
+		return true
+	}
+	return strings.Contains(strings.ToLower(i.Notes), strings.ToLower(*search))
+}
+
 func (f *fakeRepo) Create(_ context.Context, i *inspection.Inspection) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -45,12 +55,12 @@ func (f *fakeRepo) GetByID(_ context.Context, userID, inspectionID uuid.UUID) (*
 	return &cp, nil
 }
 
-func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pagination.Params, _ *string) ([]*inspection.Inspection, int, error) {
+func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*inspection.Inspection
 	for _, i := range f.byID {
-		if i.UserID == userID && i.HiveID == hiveID && i.DeletedAt == nil {
+		if i.UserID == userID && i.HiveID == hiveID && i.DeletedAt == nil && (typ == nil || i.Type == *typ) && matchesSearch(i, search) {
 			cp := *i
 			all = append(all, &cp)
 		}
@@ -75,12 +85,12 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 	return all[start:end], total, nil
 }
 
-func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, _ *string) ([]*inspection.Inspection, int, error) {
+func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*inspection.Inspection
 	for _, i := range f.byID {
-		if i.UserID == userID && i.DeletedAt == nil {
+		if i.UserID == userID && i.DeletedAt == nil && (typ == nil || i.Type == *typ) && matchesSearch(i, search) {
 			cp := *i
 			all = append(all, &cp)
 		}
@@ -377,7 +387,7 @@ func TestListByHive_ReturnsOnlyOwnInspectionsForThatHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := svc.ListByHive(context.Background(), userA, hiveA1, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := svc.ListByHive(context.Background(), userA, hiveA1, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -410,7 +420,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		}
 	}
 
-	firstPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil)
+	firstPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -421,7 +431,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 1 returned %d inspections, want 2", len(firstPage))
 	}
 
-	lastPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil)
+	lastPage, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -432,7 +442,7 @@ func TestListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 3 returned %d inspections, want 1", len(lastPage))
 	}
 
-	beyond, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil)
+	beyond, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 10: %v", err)
 	}
@@ -447,7 +457,7 @@ func TestListByHive_Pagination(t *testing.T) {
 func TestListByHive_Empty(t *testing.T) {
 	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
 
-	list, total, err := svc.ListByHive(context.Background(), uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := svc.ListByHive(context.Background(), uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -474,7 +484,7 @@ func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, _, err := svc.ListByHive(context.Background(), other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, _, err := svc.ListByHive(context.Background(), other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -514,7 +524,7 @@ func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -547,7 +557,7 @@ func TestList_Pagination(t *testing.T) {
 		}
 	}
 
-	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil)
+	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -562,7 +572,7 @@ func TestList_Pagination(t *testing.T) {
 func TestList_Empty(t *testing.T) {
 	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
 
-	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -571,6 +581,133 @@ func TestList_Empty(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("List = %v, want empty", list)
+	}
+}
+
+// TestListByHive_FilterByType proves the optional type filter is forwarded
+// to the repository and narrows results to the requested InspectionType,
+// while an omitted (nil) type returns every type.
+func TestListByHive_FilterByType(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	for _, typ := range inspection.Types {
+		if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+			HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "n/a", Type: typ,
+		}); err != nil {
+			t.Fatalf("create %s: %v", typ, err)
+		}
+	}
+
+	queen := inspection.TypeQueen
+	list, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen)
+	if err != nil {
+		t.Fatalf("ListByHive type=QUEEN: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].Type != inspection.TypeQueen {
+		t.Fatalf("ListByHive type=QUEEN: total=%d list=%v, want a single QUEEN inspection", total, list)
+	}
+
+	all, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	if err != nil {
+		t.Fatalf("ListByHive without type filter: %v", err)
+	}
+	if total != len(inspection.Types) || len(all) != len(inspection.Types) {
+		t.Fatalf("ListByHive without type filter: total=%d len=%d, want %d", total, len(all), len(inspection.Types))
+	}
+}
+
+// TestList_FilterByType mirrors TestListByHive_FilterByType for the
+// cross-hive List, also proving the filter respects ownership.
+func TestList_FilterByType(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	userA := uuid.New()
+	userB := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+	tokenA := "token-a"
+	tokenB := "token-b"
+	verifier.allow(tokenA, hiveA)
+	verifier.allow(tokenB, hiveB)
+
+	if _, err := svc.Create(context.Background(), userA, tokenA, appinspection.CreateInput{
+		HiveID: hiveA, InspectedAt: inspectedAt(), Notes: "userA queen", Type: inspection.TypeQueen,
+	}); err != nil {
+		t.Fatalf("create userA queen: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), userA, tokenA, appinspection.CreateInput{
+		HiveID: hiveA, InspectedAt: inspectedAt(), Notes: "userA routine", Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("create userA routine: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), userB, tokenB, appinspection.CreateInput{
+		HiveID: hiveB, InspectedAt: inspectedAt(), Notes: "userB queen", Type: inspection.TypeQueen,
+	}); err != nil {
+		t.Fatalf("create userB queen: %v", err)
+	}
+
+	queen := inspection.TypeQueen
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen)
+	if err != nil {
+		t.Fatalf("List type=QUEEN: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].UserID != userA {
+		t.Fatalf("List type=QUEEN: total=%d list=%v, want a single QUEEN inspection owned by userA", total, list)
+	}
+}
+
+// TestListByHive_FilterByTypeCombinedWithSearchAndPagination proves type
+// combines with search and pagination using AND semantics end to end
+// through the service.
+func TestListByHive_FilterByTypeCombinedWithSearchAndPagination(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	for i := 0; i < 3; i++ {
+		if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+			HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "queen seen, healthy", Type: inspection.TypeQueen,
+		}); err != nil {
+			t.Fatalf("create matching %d: %v", i, err)
+		}
+	}
+	// Wrong type, same notes: excluded by the type filter.
+	if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "queen seen, healthy", Type: inspection.TypeBrood,
+	}); err != nil {
+		t.Fatalf("create wrong type: %v", err)
+	}
+	// Right type, wrong notes: excluded by the search filter.
+	if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "nothing notable", Type: inspection.TypeQueen,
+	}); err != nil {
+		t.Fatalf("create wrong notes: %v", err)
+	}
+
+	queen := inspection.TypeQueen
+	search := "healthy"
+	page, total, err := svc.ListByHive(context.Background(), userID, hiveID, pagination.Params{Page: 1, Limit: 2}, &search, &queen)
+	if err != nil {
+		t.Fatalf("ListByHive type+search+pagination: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3 (only the matching type+search rows)", total)
+	}
+	if len(page) != 2 {
+		t.Fatalf("page len = %d, want 2", len(page))
+	}
+	for _, i := range page {
+		if i.Type != inspection.TypeQueen || i.Notes != "queen seen, healthy" {
+			t.Errorf("unexpected result %+v", i)
+		}
 	}
 }
 
@@ -724,7 +861,7 @@ func TestDeleteByHive_DeletesOnlyThatHivesInspections(t *testing.T) {
 		t.Fatalf("DeleteByHive count = %d, want 2", count)
 	}
 
-	list, total, err := svc.ListByHive(context.Background(), userID, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := svc.ListByHive(context.Background(), userID, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -1385,5 +1522,3 @@ func TestMediaLimit_IndependentPerInspection(t *testing.T) {
 		t.Fatalf("expected both inspections to have 5 photos, got %d and %d", len(ins1.Images), len(ins2.Images))
 	}
 }
-
-

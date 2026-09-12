@@ -31,7 +31,7 @@ info:
     referenced by more than one. Removing an id from `images` only drops
     the reference; it does not delete the underlying file (cascading a
     hive delete does delete every file its inspections reference).
-  version: 0.6.0
+  version: 0.7.0
 servers:
   - url: http://localhost:8080
 
@@ -143,6 +143,15 @@ paths:
           description: Optional search filter (matched case-insensitively against notes). Minimum 3 characters.
           required: false
           schema: { type: string, minLength: 3 }
+        - name: type
+          in: query
+          description: >
+            Optional filter restricting results to inspections of this
+            type. Combines with search and pagination using AND semantics
+            — all specified filters must match. Omitting it leaves results
+            unfiltered by type.
+          required: false
+          schema: { $ref: "#/components/schemas/InspectionType" }
       responses:
         "200":
           description: A page of the caller's inspections.
@@ -157,7 +166,7 @@ paths:
                     items: { $ref: "#/components/schemas/InspectionResponse" }
                   pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
-          description: page, limit, or search is invalid.
+          description: page, limit, search, or type is invalid.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -300,6 +309,15 @@ paths:
           description: Optional search filter (matched case-insensitively against notes). Minimum 3 characters.
           required: false
           schema: { type: string, minLength: 3 }
+        - name: type
+          in: query
+          description: >
+            Optional filter restricting results to inspections of this
+            type. Combines with search and pagination using AND semantics
+            — all specified filters must match. Omitting it leaves results
+            unfiltered by type.
+          required: false
+          schema: { $ref: "#/components/schemas/InspectionType" }
       responses:
         "200":
           description: A page of the caller's inspections for this hive.
@@ -314,7 +332,7 @@ paths:
                     items: { $ref: "#/components/schemas/InspectionResponse" }
                   pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
-          description: hiveId is not a valid UUID, or page, limit, or search is invalid.
+          description: hiveId is not a valid UUID, or page, limit, search, or type is invalid.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }

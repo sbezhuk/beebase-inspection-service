@@ -134,7 +134,7 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestInspectionRepository_ListByUser_AcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestInspectionRepository_ListByUser_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// First page.
-	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil)
+	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Middle page.
-	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2}, nil)
+	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 2: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Last (partial) page.
-	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil)
+	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Page beyond available data.
-	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil)
+	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 10: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestInspectionRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -350,11 +350,11 @@ func TestInspectionRepository_ListByHive_StableOrdering(t *testing.T) {
 		ids[i] = insp.ID
 	}
 
-	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil)
+	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 1: %v", err)
 	}
-	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil)
+	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 2: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestInspectionRepository_ListByHive_WrongOwnerReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil)
+	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -762,5 +762,178 @@ func TestInspectionRepository_DeleteByHive_ReturnsUnionOfDeletedImages(t *testin
 	}
 	if len(images) != 3 {
 		t.Errorf("DeleteByHive images = %v, want 3 entries", images)
+	}
+}
+
+// TestInspectionRepository_ListByHive_FilterByType proves the optional type
+// filter is applied for every supported InspectionType, and that omitting
+// it (nil) returns inspections of every type.
+func TestInspectionRepository_ListByHive_FilterByType(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	for _, typ := range inspection.Types {
+		if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), string(typ)+" inspection", typ)); err != nil {
+			t.Fatalf("create %s: %v", typ, err)
+		}
+	}
+
+	for _, typ := range inspection.Types {
+		typ := typ
+		list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &typ)
+		if err != nil {
+			t.Fatalf("ListByHive type=%s: %v", typ, err)
+		}
+		if total != 1 || len(list) != 1 {
+			t.Fatalf("ListByHive type=%s: total=%d len=%d, want 1 and 1", typ, total, len(list))
+		}
+		if list[0].Type != typ {
+			t.Fatalf("ListByHive type=%s: got %s", typ, list[0].Type)
+		}
+	}
+
+	all, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil)
+	if err != nil {
+		t.Fatalf("ListByHive without type filter: %v", err)
+	}
+	if total != len(inspection.Types) || len(all) != len(inspection.Types) {
+		t.Fatalf("ListByHive without type filter: total=%d len=%d, want %d", total, len(all), len(inspection.Types))
+	}
+}
+
+// TestInspectionRepository_ListByUser_FilterByType mirrors
+// TestInspectionRepository_ListByHive_FilterByType for the cross-hive list,
+// also proving the filter only matches the calling user's own inspections.
+func TestInspectionRepository_ListByUser_FilterByType(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userA := uuid.New()
+	userB := uuid.New()
+
+	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "userA queen", inspection.TypeQueen)); err != nil {
+		t.Fatalf("create userA queen: %v", err)
+	}
+	if err := repo.Create(ctx, inspection.New(userA, uuid.New(), inspectedAt(), "userA routine", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create userA routine: %v", err)
+	}
+	// Different user, same type: must not leak into userA's filtered results.
+	if err := repo.Create(ctx, inspection.New(userB, uuid.New(), inspectedAt(), "userB queen", inspection.TypeQueen)); err != nil {
+		t.Fatalf("create userB queen: %v", err)
+	}
+
+	queen := inspection.TypeQueen
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen)
+	if err != nil {
+		t.Fatalf("ListByUser type=QUEEN: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("ListByUser type=QUEEN: total=%d len=%d, want 1 and 1", total, len(list))
+	}
+	if list[0].UserID != userA || list[0].Type != inspection.TypeQueen {
+		t.Fatalf("ListByUser type=QUEEN returned %+v, want userA's QUEEN inspection", list[0])
+	}
+}
+
+// TestInspectionRepository_ListByHive_FilterByTypeCombinedWithSearch proves
+// type and search apply together with AND semantics, not OR.
+func TestInspectionRepository_ListByHive_FilterByTypeCombinedWithSearch(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "queen seen, healthy", inspection.TypeQueen)); err != nil {
+		t.Fatalf("create matching: %v", err)
+	}
+	// Same notes term, different type: must be excluded by the type filter.
+	if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "queen seen, brood checked", inspection.TypeBrood)); err != nil {
+		t.Fatalf("create wrong type: %v", err)
+	}
+	// Same type, notes that don't match search: must be excluded by search.
+	if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "nothing notable", inspection.TypeQueen)); err != nil {
+		t.Fatalf("create wrong notes: %v", err)
+	}
+
+	queen := inspection.TypeQueen
+	search := "healthy"
+	list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, &search, &queen)
+	if err != nil {
+		t.Fatalf("ListByHive type+search: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("ListByHive type+search: total=%d len=%d, want 1 and 1", total, len(list))
+	}
+	if list[0].Notes != "queen seen, healthy" {
+		t.Fatalf("ListByHive type+search returned %q, want the one matching both filters", list[0].Notes)
+	}
+}
+
+// TestInspectionRepository_ListByHive_FilterByTypeCombinedWithPagination
+// proves the type filter narrows the total/page count used for pagination
+// metadata, not just the returned rows.
+func TestInspectionRepository_ListByHive_FilterByTypeCombinedWithPagination(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	for i := 0; i < 3; i++ {
+		if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "queen", inspection.TypeQueen)); err != nil {
+			t.Fatalf("create queen %d: %v", i, err)
+		}
+	}
+	if err := repo.Create(ctx, inspection.New(userID, hiveID, inspectedAt(), "routine", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create routine: %v", err)
+	}
+
+	queen := inspection.TypeQueen
+	page, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, &queen)
+	if err != nil {
+		t.Fatalf("ListByHive type+pagination: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("ListByHive type+pagination: total=%d, want 3 (routine excluded)", total)
+	}
+	if len(page) != 2 {
+		t.Fatalf("ListByHive type+pagination: page len=%d, want 2", len(page))
+	}
+	for _, i := range page {
+		if i.Type != inspection.TypeQueen {
+			t.Errorf("ListByHive type+pagination leaked type %s", i.Type)
+		}
 	}
 }

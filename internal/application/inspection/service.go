@@ -89,16 +89,20 @@ func (s *Service) Get(ctx context.Context, userID, inspectionID uuid.UUID) (*ins
 
 // ListByHive returns the page of inspections described by p belonging to
 // userID for hiveID. When search is non-nil its value is matched
-// case-insensitively against the inspection's notes field.
-func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
-	return s.inspections.ListByHive(ctx, userID, hiveID, p, search)
+// case-insensitively against the inspection's notes field. When typ is
+// non-nil, only inspections of that Type are returned. Both filters, when
+// given, apply together (AND semantics).
+func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByHive(ctx, userID, hiveID, p, search, typ)
 }
 
 // List returns the page of inspections described by p across every hive
 // belonging to userID. When search is non-nil its value is matched
-// case-insensitively against the inspection's notes field.
-func (s *Service) List(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string) ([]*inspection.Inspection, int, error) {
-	return s.inspections.ListByUser(ctx, userID, p, search)
+// case-insensitively against the inspection's notes field. When typ is
+// non-nil, only inspections of that Type are returned. Both filters, when
+// given, apply together (AND semantics).
+func (s *Service) List(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByUser(ctx, userID, p, search, typ)
 }
 
 // Update replaces the editable fields of the inspection identified by

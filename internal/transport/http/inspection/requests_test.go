@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
 const validInspectedAt = "2026-03-15T09:00:00Z"
@@ -206,6 +208,54 @@ func TestParseSearch(t *testing.T) {
 						t.Fatalf("search = %v, want %v", s, *tc.wantSearch)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestParseType(t *testing.T) {
+	type testCase struct {
+		name     string
+		query    string
+		wantType *inspection.Type
+		wantCode string
+	}
+
+	cases := []testCase{
+		{name: "omitted", query: ""},
+		{name: "empty", query: "type="},
+		{name: "invalid value", query: "type=SWARM", wantCode: CodeTypeInvalid},
+		{name: "lowercase not accepted", query: "type=queen", wantCode: CodeTypeInvalid},
+	}
+	for _, typ := range inspection.Types {
+		typ := typ
+		cases = append(cases, testCase{name: string(typ), query: "type=" + string(typ), wantType: &typ})
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
+			typ, fields := parseType(req, nil)
+			if tc.wantCode != "" {
+				if fields["type"] != tc.wantCode {
+					t.Fatalf("fields[type] = %q, want %q", fields["type"], tc.wantCode)
+				}
+				if typ != nil {
+					t.Fatalf("type = %v, want nil", typ)
+				}
+				return
+			}
+			if len(fields) != 0 {
+				t.Fatalf("unexpected fields: %v", fields)
+			}
+			if tc.wantType == nil {
+				if typ != nil {
+					t.Fatalf("type = %v, want nil", typ)
+				}
+				return
+			}
+			if typ == nil || *typ != *tc.wantType {
+				t.Fatalf("type = %v, want %v", typ, *tc.wantType)
 			}
 		})
 	}

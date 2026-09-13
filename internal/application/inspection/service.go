@@ -90,12 +90,13 @@ func (s *Service) Get(ctx context.Context, userID, inspectionID uuid.UUID) (*ins
 // ListByHive returns the page of inspections described by p belonging to
 // userID for hiveID. When search is non-nil its value is matched
 // case-insensitively against the inspection's notes field. When typ is
-// non-nil, only inspections of that Type are returned. Both filters, when
-// given, apply together (AND semantics). When sortOrder is non-nil ("asc"
-// or "desc") the page is ordered by creation date in that direction
+// non-nil, only inspections of that Type are returned. dateFrom/dateTo are
+// optional filters on InspectedAt - see inspection.Repository.ListByHive
+// for how they combine with the other filters. When sortOrder is non-nil
+// ("asc" or "desc") the page is ordered by creation date in that direction
 // instead of the repository's default order (InspectedAt).
-func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
-	return s.inspections.ListByHive(ctx, userID, hiveID, p, search, typ, sortOrder)
+func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByHive(ctx, userID, hiveID, p, search, typ, dateFrom, dateTo, sortOrder)
 }
 
 // List returns the page of inspections described by p across every hive

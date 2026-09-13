@@ -328,6 +328,28 @@ paths:
             unfiltered by type.
           required: false
           schema: { $ref: "#/components/schemas/InspectionType" }
+        - name: date_from
+          in: query
+          description: >
+            Optional inclusive lower bound on inspected_at, as an ISO 8601
+            calendar date (YYYY-MM-DD, no time-of-day). Matches the whole
+            of that calendar day onward. Independent of date_to - each may
+            be given alone - but when both are given, date_from must not
+            fall after date_to. Combines with search/type/pagination using
+            AND semantics.
+          required: false
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          description: >
+            Optional inclusive upper bound on inspected_at, as an ISO 8601
+            calendar date (YYYY-MM-DD, no time-of-day). Matches the whole
+            of that calendar day, through its last instant. Independent of
+            date_from - each may be given alone - but when both are given,
+            date_from must not fall after date_to. Combines with
+            search/type/pagination using AND semantics.
+          required: false
+          schema: { type: string, format: date }
         - name: sortOrder
           in: query
           description: >
@@ -352,7 +374,11 @@ paths:
                     items: { $ref: "#/components/schemas/InspectionResponse" }
                   pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
-          description: hiveId is not a valid UUID, or page, limit, search, type, or sortOrder is invalid.
+          description: >
+            hiveId is not a valid UUID, or page, limit, search, type,
+            date_from, date_to, or sortOrder is invalid - including
+            date_from/date_to not matching YYYY-MM-DD, or date_from
+            falling after date_to.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -525,5 +551,8 @@ components:
                   - invalid_page
                   - invalid_limit
                   - invalid_search
+                  - invalid_date_from
+                  - invalid_date_to
+                  - invalid_date_range
                   - invalid_sort_order
               example: { hive_id: "hive_id_invalid" }

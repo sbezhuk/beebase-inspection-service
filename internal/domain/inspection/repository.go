@@ -2,6 +2,7 @@ package inspection
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,11 +31,16 @@ type Repository interface {
 	// When search is non-nil its value is matched case-insensitively
 	// against notes; a nil search means no filter. When typ is non-nil,
 	// only inspections of that Type are returned; a nil typ means no
-	// filter. Both filters, when given, apply together (AND semantics).
-	// When sortOrder is non-nil ("asc" or "desc") the page is ordered by
-	// creation date in that direction instead of the default order
-	// (InspectedAt); a nil sortOrder keeps the default order.
-	ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *Type, sortOrder *string) (inspections []*Inspection, total int, err error)
+	// filter. dateFrom/dateTo restrict InspectedAt, independently of one
+	// another - dateFrom is an inclusive lower bound, dateTo is an
+	// exclusive upper bound that the caller has already advanced to the
+	// start of the day after the requested end date, so together they
+	// cover the requested date_to's whole calendar day. Every given filter
+	// applies together (AND semantics). When sortOrder is non-nil ("asc"
+	// or "desc") the page is ordered by creation date in that direction
+	// instead of the default order (InspectedAt); a nil sortOrder keeps
+	// the default order.
+	ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *Type, dateFrom, dateTo *time.Time, sortOrder *string) (inspections []*Inspection, total int, err error)
 	// ListByUser returns the page of inspections described by p across
 	// every hive belonging to userID, along with the total number of
 	// matching inspections (independent of p). Used by statistics-service

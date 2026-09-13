@@ -1144,3 +1144,121 @@ func TestInspectionFlow_ListFilterByType_RespectsOwnership(t *testing.T) {
 		t.Fatalf("list as owner: total = %d, want 1", page.Pagination.Total)
 	}
 }
+
+// TestInspectionFlow_ListByHive_DateFilter covers the date_from/date_to
+// query parameters on GET /hives/{hiveID}/inspections: each used alone,
+// both together, exact boundary dates (an inspection at the last instant
+// of the requested date_to's calendar day must still match), a range
+// matching nothing, and rejected invalid formats/ranges.
+func TestInspectionFlow_ListByHive_DateFilter(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	dates := []string{
+		"2026-08-01T00:00:00Z",
+		"2026-08-15T12:30:00Z",
+		"2026-09-01T23:59:59Z",
+	}
+	for _, d := range dates {
+		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+			"hive_id": hiveID.String(), "inspected_at": d, "notes": "n/a", "type": "ROUTINE",
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("seed %s: status = %d, want %d", d, resp.StatusCode, http.StatusCreated)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"date_from only", "date_from=2026-08-15", 2},                         // aug15, sep1
+		{"date_to only", "date_to=2026-08-15", 2},                             // aug1, aug15 (whole day included)
+		{"both", "date_from=2026-08-15&date_to=2026-08-31", 1},                // only aug15
+		{"exact boundary date", "date_from=2026-09-01&date_to=2026-09-01", 1}, // sep1, inspected at 23:59:59
+		{"range matching nothing", "date_from=2026-01-01&date_to=2026-01-02", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?"+tc.query, token, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			var page pagination.Response[inspectionhttp.Response]
+			decodeJSON(t, resp, &page)
+			if page.Pagination.Total != tc.want {
+				t.Fatalf("total = %d, want %d", page.Pagination.Total, tc.want)
+			}
+		})
+	}
+
+	invalidCases := []string{
+		"date_from=2026/08/01",                    // invalid format
+		"date_to=01-08-2026",                      // invalid format
+		"date_from=2026-08-01T00:00:00Z",          // full timestamp, not a date
+		"date_from=2026-09-01&date_to=2026-08-01", // date_from after date_to
+	}
+	for _, query := range invalidCases {
+		resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?"+query, token, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d", query, resp.StatusCode, http.StatusBadRequest)
+		}
+	}
+}
+
+// TestInspectionFlow_ListByHive_DateFilterCombinedWithSearchTypeAndPagination
+// proves date_from/date_to apply together with search, type, and
+// pagination using AND semantics, and that the cross-hive List endpoint
+// (which has no date filter) is left untouched by this feature.
+func TestInspectionFlow_ListByHive_DateFilterCombinedWithSearchTypeAndPagination(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	inRange := "2026-08-15T00:00:00Z"
+	outOfRange := "2026-01-01T00:00:00Z"
+
+	for i := 0; i < 2; i++ {
+		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+			"hive_id": hiveID.String(), "inspected_at": inRange, "notes": "queen seen, healthy", "type": "QUEEN",
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create matching %d: status = %d, want %d", i, resp.StatusCode, http.StatusCreated)
+		}
+	}
+	// Right type and notes, wrong date: excluded by the date filter.
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveID.String(), "inspected_at": outOfRange, "notes": "queen seen, healthy", "type": "QUEEN",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create wrong-date: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	// Right date and notes, wrong type: excluded by the type filter.
+	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id": hiveID.String(), "inspected_at": inRange, "notes": "queen seen, healthy", "type": "BROOD",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create wrong-type: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?type=QUEEN&search=healthy&date_from=2026-08-01&date_to=2026-08-31&page=1&limit=1", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list type+search+date+pagination: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page pagination.Response[inspectionhttp.Response]
+	decodeJSON(t, resp, &page)
+	if page.Pagination.Total != 2 {
+		t.Fatalf("list type+search+date+pagination: total = %d, want 2", page.Pagination.Total)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("list type+search+date+pagination: page len = %d, want 1", len(page.Items))
+	}
+	if page.Items[0].Type != "QUEEN" || page.Items[0].Notes != "queen seen, healthy" {
+		t.Fatalf("unexpected result %+v", page.Items[0])
+	}
+}

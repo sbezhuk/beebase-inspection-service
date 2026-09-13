@@ -134,7 +134,7 @@ func TestInspectionRepository_ListByHive_OnlyOwnInspectionsForThatHive(t *testin
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, userA, hiveA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// First page.
-	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
+	first, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Middle page.
-	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2}, nil, nil, nil)
+	middle, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 2, Limit: 2}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 2: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Last (partial) page.
-	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil)
+	last, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestInspectionRepository_ListByHive_Pagination(t *testing.T) {
 	}
 
 	// Page beyond available data.
-	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil, nil)
+	beyond, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 10, Limit: 2}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 10: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestInspectionRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -350,11 +350,11 @@ func TestInspectionRepository_ListByHive_StableOrdering(t *testing.T) {
 		ids[i] = insp.ID
 	}
 
-	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil, nil)
+	firstRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 1: %v", err)
 	}
-	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil, nil)
+	secondRun, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 4}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive run 2: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestInspectionRepository_ListByHive_SortOrder(t *testing.T) {
 	}
 
 	asc := "asc"
-	ascending, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, &asc)
+	ascending, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, &asc)
 	if err != nil {
 		t.Fatalf("ListByHive asc: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestInspectionRepository_ListByHive_SortOrder(t *testing.T) {
 	}
 
 	desc := "desc"
-	descending, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, &desc)
+	descending, _, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, &desc)
 	if err != nil {
 		t.Fatalf("ListByHive desc: %v", err)
 	}
@@ -457,7 +457,7 @@ func TestInspectionRepository_ListByHive_WrongOwnerReturnsEmpty(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, _, err := repo.ListByHive(ctx, other, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -859,7 +859,7 @@ func TestInspectionRepository_ListByHive_FilterByType(t *testing.T) {
 
 	for _, typ := range inspection.Types {
 		typ := typ
-		list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &typ, nil)
+		list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &typ, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("ListByHive type=%s: %v", typ, err)
 		}
@@ -871,7 +871,7 @@ func TestInspectionRepository_ListByHive_FilterByType(t *testing.T) {
 		}
 	}
 
-	all, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	all, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive without type filter: %v", err)
 	}
@@ -951,7 +951,7 @@ func TestInspectionRepository_ListByHive_FilterByTypeCombinedWithSearch(t *testi
 
 	queen := inspection.TypeQueen
 	search := "healthy"
-	list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, &search, &queen, nil)
+	list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, &search, &queen, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive type+search: %v", err)
 	}
@@ -990,7 +990,7 @@ func TestInspectionRepository_ListByHive_FilterByTypeCombinedWithPagination(t *t
 	}
 
 	queen := inspection.TypeQueen
-	page, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, &queen, nil)
+	page, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, &queen, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive type+pagination: %v", err)
 	}
@@ -1004,5 +1004,129 @@ func TestInspectionRepository_ListByHive_FilterByTypeCombinedWithPagination(t *t
 		if i.Type != inspection.TypeQueen {
 			t.Errorf("ListByHive type+pagination leaked type %s", i.Type)
 		}
+	}
+}
+
+// TestInspectionRepository_ListByHive_DateFilter proves date_from/date_to
+// each apply independently, together cover an inclusive range at day
+// granularity, and reject nothing when the boundary dates exactly match an
+// inspection's inspected_at.
+func TestInspectionRepository_ListByHive_DateFilter(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	aug1 := inspection.New(userID, hiveID, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), "aug1", inspection.TypeRoutine)
+	aug15 := inspection.New(userID, hiveID, time.Date(2026, 8, 15, 12, 30, 0, 0, time.UTC), "aug15", inspection.TypeRoutine)
+	sep1 := inspection.New(userID, hiveID, time.Date(2026, 9, 1, 23, 59, 59, 0, time.UTC), "sep1", inspection.TypeRoutine)
+	for _, i := range []*inspection.Inspection{aug1, aug15, sep1} {
+		if err := repo.Create(ctx, i); err != nil {
+			t.Fatalf("create %v: %v", i, err)
+		}
+	}
+
+	// date_from only: everything on or after Aug 15.
+	from := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	list, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, &from, nil, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_from: %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("ListByHive date_from=%v = %+v (total=%d), want aug15 and sep1", from, list, total)
+	}
+
+	// date_to only: everything up to and including the whole day of Aug 15
+	// - passed as the exclusive start of Aug 16, matching what the HTTP
+	// handler's parseDateFilter computes for a date_to of Aug 15.
+	to := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	list, total, err = repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_to: %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("ListByHive date_to=%v = %+v (total=%d), want aug1 and aug15", to, list, total)
+	}
+
+	// Both together: only Aug 15 falls within [Aug 15, Aug 16).
+	list, total, err = repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, &from, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_from+date_to: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].ID != aug15.ID {
+		t.Fatalf("ListByHive date_from=%v date_to=%v = %+v (total=%d), want only aug15", from, to, list, total)
+	}
+
+	// Exact boundary: a date_to of Sep 1 (exclusive bound Sep 2) must still
+	// include an inspection at 23:59:59 on Sep 1.
+	sep1Exclusive := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	list, total, err = repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, &sep1Exclusive, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_to boundary: %v", err)
+	}
+	if total != 3 || len(list) != 3 {
+		t.Fatalf("ListByHive date_to=%v = %+v (total=%d), want all 3 (whole day of sep1 included)", sep1Exclusive, list, total)
+	}
+}
+
+// TestInspectionRepository_ListByHive_DateFilterCombinedWithSearchTypeAndPagination
+// proves date_from/date_to apply together with search, type, and
+// pagination using AND semantics.
+func TestInspectionRepository_ListByHive_DateFilterCombinedWithSearchTypeAndPagination(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	inRange := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	outOfRange := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Matches every filter below.
+	match1 := inspection.New(userID, hiveID, inRange, "queen seen, healthy", inspection.TypeQueen)
+	match2 := inspection.New(userID, hiveID, inRange, "queen seen, healthy", inspection.TypeQueen)
+	// Right type and notes, wrong date.
+	wrongDate := inspection.New(userID, hiveID, outOfRange, "queen seen, healthy", inspection.TypeQueen)
+	// Right date and notes, wrong type.
+	wrongType := inspection.New(userID, hiveID, inRange, "queen seen, healthy", inspection.TypeBrood)
+	// Right date and type, wrong notes.
+	wrongNotes := inspection.New(userID, hiveID, inRange, "nothing notable", inspection.TypeQueen)
+	for _, i := range []*inspection.Inspection{match1, match2, wrongDate, wrongType, wrongNotes} {
+		if err := repo.Create(ctx, i); err != nil {
+			t.Fatalf("create %v: %v", i, err)
+		}
+	}
+
+	queen := inspection.TypeQueen
+	search := "healthy"
+	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	page, total, err := repo.ListByHive(ctx, userID, hiveID, pagination.Params{Page: 1, Limit: 1}, &search, &queen, &from, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByHive combined: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("ListByHive combined: total = %d, want 2 (match1 and match2 only)", total)
+	}
+	if len(page) != 1 {
+		t.Fatalf("ListByHive combined: page len = %d, want 1", len(page))
+	}
+	if page[0].Type != inspection.TypeQueen || page[0].Notes != "queen seen, healthy" {
+		t.Fatalf("ListByHive combined: unexpected result %+v", page[0])
 	}
 }

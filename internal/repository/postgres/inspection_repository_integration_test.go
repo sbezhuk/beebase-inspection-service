@@ -175,7 +175,7 @@ func TestInspectionRepository_ListByUser_AcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -192,6 +192,48 @@ func TestInspectionRepository_ListByUser_AcrossEveryHive(t *testing.T) {
 	}
 }
 
+// TestInspectionRepository_ListByUser_DateFilterUsesInspectedAt guards the
+// important distinction between the business date and the row's creation
+// timestamp: both rows are created now, but only the 7 September inspection
+// belongs in the requested 7 September page and count.
+func TestInspectionRepository_ListByUser_DateFilterUsesInspectedAt(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	oldDate := time.Date(2026, 9, 7, 15, 30, 0, 0, time.UTC)
+	newDate := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
+
+	old := inspection.New(userID, uuid.New(), oldDate, "created today, inspected 7 September", inspection.TypeRoutine)
+	newer := inspection.New(userID, uuid.New(), newDate, "created today, inspected 14 September", inspection.TypeRoutine)
+	if err := repo.Create(ctx, old); err != nil {
+		t.Fatalf("create old-date inspection: %v", err)
+	}
+	if err := repo.Create(ctx, newer); err != nil {
+		t.Fatalf("create new-date inspection: %v", err)
+	}
+
+	from := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	list, total, err := repo.ListByUser(ctx, userID, pagination.Params{Page: 1, Limit: 20}, nil, nil, &from, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByUser date filter: %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("date-filtered result = %d total, %d items; want 1 and 1", total, len(list))
+	}
+	if list[0].ID != old.ID {
+		t.Fatalf("date-filtered item = %s, want inspection %s with inspected_at %v", list[0].ID, old.ID, oldDate)
+	}
+}
+
 func TestInspectionRepository_ListByUser_Empty(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -204,7 +246,7 @@ func TestInspectionRepository_ListByUser_Empty(t *testing.T) {
 
 	repo := repopostgres.NewInspectionRepository(tx)
 
-	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := repo.ListByUser(ctx, uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
@@ -909,7 +951,7 @@ func TestInspectionRepository_ListByUser_FilterByType(t *testing.T) {
 	}
 
 	queen := inspection.TypeQueen
-	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil)
+	list, total, err := repo.ListByUser(ctx, userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByUser type=QUEEN: %v", err)
 	}

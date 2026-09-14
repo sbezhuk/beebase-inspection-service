@@ -131,13 +131,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	p, fields := pagination.ParseParams(r)
 	search, fields := parseSearch(r, fields)
 	typ, fields := parseType(r, fields)
+	dateFrom, dateTo, fields := parseDateFilter(r, fields)
 	sortOrder, fields := parseSortOrder(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	inspections, total, err := h.service.List(r.Context(), userID, p, search, typ, sortOrder)
+	inspections, total, err := h.service.List(r.Context(), userID, p, search, typ, dateFrom, dateTo, sortOrder)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return

@@ -111,8 +111,8 @@ func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pa
 // given, apply together (AND semantics). When sortOrder is non-nil ("asc"
 // or "desc") the page is ordered by creation date in that direction
 // instead of the repository's default order (InspectedAt).
-func (s *Service) List(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
-	return s.inspections.ListByUser(ctx, userID, p, search, typ, sortOrder)
+func (s *Service) List(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
+	return s.inspections.ListByUser(ctx, userID, p, search, typ, dateFrom, dateTo, sortOrder)
 }
 
 // Update replaces the editable fields of the inspection identified by

@@ -97,16 +97,15 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 	return r.list(ctx, userID, &hiveID, p, search, typ, dateFrom, dateTo, sortOrder)
 }
 
-func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
-	return r.list(ctx, userID, nil, p, search, typ, nil, nil, sortOrder)
+func (r *InspectionRepository) ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
+	return r.list(ctx, userID, nil, p, search, typ, dateFrom, dateTo, sortOrder)
 }
 
 // list is the shared implementation behind ListByHive (hiveID non-nil) and
 // ListByUser (hiveID nil). search, typ, and dateFrom/dateTo are optional
 // filters applied together with AND semantics; placeholders are numbered
-// dynamically since which filters are present varies per call. dateFrom/
-// dateTo are only ever non-nil via ListByHive - ListByUser has no date
-// filter of its own yet.
+// dynamically since which filters are present varies per call. dateFrom/dateTo
+// are optional domain-date filters for either list scope.
 func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveID *uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	countQ := `
 		SELECT count(*)
@@ -146,7 +145,7 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 	}
 
 	if dateTo != nil {
-		cond := fmt.Sprintf(" AND inspected_at < $%d", argIdx)
+		cond := fmt.Sprintf(" AND inspected_at <= $%d", argIdx)
 		countQ += cond
 		q += cond
 		countArgs = append(countArgs, *dateTo)

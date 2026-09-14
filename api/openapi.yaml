@@ -152,6 +152,16 @@ paths:
             unfiltered by type.
           required: false
           schema: { $ref: "#/components/schemas/InspectionType" }
+        - name: date_from
+          in: query
+          description: Inclusive lower bound on inspected_at as YYYY-MM-DD.
+          required: false
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          description: Inclusive upper bound on inspected_at as YYYY-MM-DD; date_from must not be later.
+          required: false
+          schema: { type: string, format: date }
         - name: sortOrder
           in: query
           description: >

@@ -108,12 +108,13 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 	return all[start:end], total, nil
 }
 
-func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, sortOrder *string) ([]*inspection.Inspection, int, error) {
+func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*inspection.Inspection
 	for _, i := range f.byID {
-		if i.UserID == userID && i.DeletedAt == nil && (typ == nil || i.Type == *typ) && matchesSearch(i, search) {
+		if i.UserID == userID && i.DeletedAt == nil && (typ == nil || i.Type == *typ) && matchesSearch(i, search) &&
+			(dateFrom == nil || !i.InspectedAt.Before(*dateFrom)) && (dateTo == nil || i.InspectedAt.Before(*dateTo)) {
 			cp := *i
 			all = append(all, &cp)
 		}
@@ -560,7 +561,7 @@ func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
 		t.Fatalf("create userB's: %v", err)
 	}
 
-	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -593,7 +594,7 @@ func TestList_Pagination(t *testing.T) {
 		}
 	}
 
-	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
+	firstPage, total, err := svc.List(context.Background(), userID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -608,7 +609,7 @@ func TestList_Pagination(t *testing.T) {
 func TestList_Empty(t *testing.T) {
 	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
 
-	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
+	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -688,7 +689,7 @@ func TestList_FilterByType(t *testing.T) {
 	}
 
 	queen := inspection.TypeQueen
-	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil)
+	list, total, err := svc.List(context.Background(), userA, pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, &queen, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List type=QUEEN: %v", err)
 	}

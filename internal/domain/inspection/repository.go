@@ -68,4 +68,14 @@ type Repository interface {
 	// so the caller can hard-delete them from media-service too - nothing
 	// else purges them once their inspection is gone.
 	DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (images []uuid.UUID, count int64, err error)
+	// LatestInspectedAtByHive returns the most recent InspectedAt for
+	// every hive userID has at least one (non-deleted) inspection under,
+	// keyed by hive id. A hive with no inspections at all is simply
+	// absent from the result - not a zero-value entry - so callers can
+	// tell "never inspected" apart from "inspected at the zero time"
+	// unambiguously. Backs GET /api/v1/inspections/hive-status, which
+	// hive-service and statistics-service both call to apply the
+	// "needs inspection" rule (see beebase-common/inspectionwarning)
+	// without each maintaining their own copy of inspection dates.
+	LatestInspectedAtByHive(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error)
 }

@@ -38,6 +38,13 @@ func NewRouter(
 		r.Route("/api/v1/inspections", func(r chi.Router) {
 			r.Post("/", inspectionHandler.Create)
 			r.Get("/", inspectionHandler.List)
+			// Internal primitive: called by hive-service (to filter hive
+			// listings by "needs inspection") and statistics-service (to
+			// report the Dashboard's Needs Attention section), never
+			// directly by an end-user client. Registered as a static
+			// sibling of "/{inspectionID}" rather than under it, so it
+			// can never be confused with an inspection id.
+			r.Get("/hive-status", inspectionHandler.HiveInspectionStatus)
 			r.Get("/{inspectionID}", inspectionHandler.Get)
 			r.Put("/{inspectionID}", inspectionHandler.Update)
 			r.Delete("/{inspectionID}", inspectionHandler.Delete)

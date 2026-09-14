@@ -1,6 +1,7 @@
 package inspection
 
 import (
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,4 +63,37 @@ func newListResponse(inspections []*inspection.Inspection, publicBaseURL string)
 		out[idx] = newResponse(i, publicBaseURL)
 	}
 	return out
+}
+
+// HiveInspectionStatusItem is one hive's latest inspection date, as
+// reported in HiveInspectionStatusResponse.Hives.
+type HiveInspectionStatusItem struct {
+	HiveID            uuid.UUID `json:"hive_id"`
+	LatestInspectedAt time.Time `json:"latest_inspected_at"`
+}
+
+// HiveInspectionStatusResponse is the public representation of GET
+// /api/v1/inspections/hive-status: the caller's currently configured
+// inspection warning threshold, plus the latest inspection date for
+// every hive they've ever inspected. A hive that's never been inspected
+// is simply absent from Hives - not a zero-value entry - so a caller
+// applying the "needs inspection" rule (see
+// beebase-common/inspectionwarning) treats any hive id missing here as
+// never inspected.
+type HiveInspectionStatusResponse struct {
+	ThresholdDays int                        `json:"threshold_days"`
+	Hives         []HiveInspectionStatusItem `json:"hives"`
+}
+
+// newHiveInspectionStatusResponse builds a HiveInspectionStatusResponse.
+// Hives is never nil, so it renders as "[]" rather than "null" when the
+// caller has no inspections at all.
+func newHiveInspectionStatusResponse(latestByHive map[uuid.UUID]time.Time, thresholdDays int) HiveInspectionStatusResponse {
+	hives := make([]HiveInspectionStatusItem, 0, len(latestByHive))
+	for hiveID, latest := range latestByHive {
+		hives = append(hives, HiveInspectionStatusItem{HiveID: hiveID, LatestInspectedAt: latest})
+	}
+	sort.Slice(hives, func(i, j int) bool { return hives[i].HiveID.String() < hives[j].HiveID.String() })
+
+	return HiveInspectionStatusResponse{ThresholdDays: thresholdDays, Hives: hives}
 }

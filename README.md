@@ -87,6 +87,7 @@ is never used as a fallback, in development or in production.
 | `DATABASE_CONNECT_TIMEOUT`  | `5s`                         | Timeout for the initial DB connection      |
 | `AUTH_JWKS_URL`             | *(required)*                 | auth-service's public key endpoint, used to verify access tokens |
 | `HIVE_SERVICE_URL`          | *(required)*                 | hive-service's base URL, used to confirm hive ownership on create |
+| `INSPECTION_WARNING_THRESHOLD_DAYS` | `14`                 | Days after a hive's latest inspection before it needs inspection - the single source of truth hive-service and statistics-service both read via `GET /api/v1/inspections/hive-status` |
 | `TEST_DATABASE_URL`         | *(unset)*                    | Used only by `make test-integration`, never by the app |
 
 ## Project structure

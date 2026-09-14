@@ -375,10 +375,37 @@ func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
 // httpmw.RequireAuth) and their raw access token (read back off the
 // request's own Authorization header, which RequireAuth already
 // validated) so it can be forwarded to hive-service.
-func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (uuid.UUID, string, bool) {
+// HiveInspectionStatus handles GET /api/v1/inspections/hive-status.
+// Called by hive-service (to filter hive listings by "needs inspection")
+// and statistics-service (to report the Dashboard's Needs Attention
+// section), never directly by an end-user client.
+func (h *Handler) HiveInspectionStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	latestByHive, thresholdDays, err := h.service.HiveInspectionStatus(r.Context(), userID)
+	if err != nil {
+		httpx.WriteInternalError(w, h.log, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, newHiveInspectionStatusResponse(latestByHive, thresholdDays))
+}
+
+func (h *Handler) requireUserID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	userID, ok := httpmw.UserIDFromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, httpmw.CodeMissingAuthorization, "missing authentication")
+		return uuid.Nil, false
+	}
+	return userID, true
+}
+
+func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (uuid.UUID, string, bool) {
+	userID, ok := h.requireUserID(w, r)
+	if !ok {
 		return uuid.Nil, "", false
 	}
 

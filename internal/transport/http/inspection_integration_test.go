@@ -28,6 +28,7 @@ import (
 	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
 
 	"github.com/sbezhuk/beebase-common/authmw"
+	"github.com/sbezhuk/beebase-common/inspectionwarning"
 	"github.com/sbezhuk/beebase-common/jwks"
 	"github.com/sbezhuk/beebase-common/logger"
 	"github.com/sbezhuk/beebase-common/pagination"
@@ -239,7 +240,7 @@ func newTestStack(t *testing.T) *testStack {
 	inspectionRepo := repopostgres.NewInspectionRepository(tx)
 	hiveVerifier := hiveclient.New(hiveServer.URL)
 	mediaClient := mediaclient.New(mediaServer.URL)
-	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient)
+	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, inspectionwarning.DefaultThresholdDays)
 	log := logger.New("development", "error")
 	handler := inspectionhttp.NewHandler(inspectionService, log, "http://localhost:8080")
 
@@ -1260,5 +1261,55 @@ func TestInspectionFlow_ListByHive_DateFilterCombinedWithSearchTypeAndPagination
 	}
 	if page.Items[0].Type != "QUEEN" || page.Items[0].Notes != "queen seen, healthy" {
 		t.Fatalf("unexpected result %+v", page.Items[0])
+	}
+}
+
+func TestInspectionFlow_HiveInspectionStatus(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveWithInspection := uuid.New()
+	hiveNeverInspected := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveWithInspection)
+
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id":      hiveWithInspection.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "queen seen",
+		"type":         "QUEEN",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/hive-status", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("hive-status: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var status inspectionhttp.HiveInspectionStatusResponse
+	decodeJSON(t, resp, &status)
+
+	if status.ThresholdDays != inspectionwarning.DefaultThresholdDays {
+		t.Errorf("threshold_days = %d, want %d (the default)", status.ThresholdDays, inspectionwarning.DefaultThresholdDays)
+	}
+	if len(status.Hives) != 1 {
+		t.Fatalf("hives = %+v, want exactly 1 entry (only the inspected hive)", status.Hives)
+	}
+	if status.Hives[0].HiveID != hiveWithInspection {
+		t.Errorf("hives[0].hive_id = %s, want %s", status.Hives[0].HiveID, hiveWithInspection)
+	}
+	for _, h := range status.Hives {
+		if h.HiveID == hiveNeverInspected {
+			t.Error("hive-status includes hiveNeverInspected, want it absent")
+		}
+	}
+}
+
+func TestInspectionFlow_HiveInspectionStatus_WithoutTokenIsUnauthorized(t *testing.T) {
+	stack := newTestStack(t)
+
+	resp := stack.request(t, http.MethodGet, "/api/v1/inspections/hive-status", "", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("hive-status without token: status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
 }

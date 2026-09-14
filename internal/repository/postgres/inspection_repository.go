@@ -258,3 +258,33 @@ func (r *InspectionRepository) DeleteByHive(ctx context.Context, userID, hiveID 
 
 	return allImages, count, nil
 }
+
+func (r *InspectionRepository) LatestInspectedAtByHive(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	const q = `
+		SELECT hive_id, max(inspected_at)
+		FROM inspections
+		WHERE user_id = $1 AND deleted_at IS NULL
+		GROUP BY hive_id
+	`
+
+	rows, err := r.db.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: latest inspected_at by hive: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID]time.Time)
+	for rows.Next() {
+		var hiveID uuid.UUID
+		var latest time.Time
+		if err := rows.Scan(&hiveID, &latest); err != nil {
+			return nil, fmt.Errorf("postgres: scan latest inspected_at by hive: %w", err)
+		}
+		out[hiveID] = latest
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: latest inspected_at by hive: %w", err)
+	}
+
+	return out, nil
+}

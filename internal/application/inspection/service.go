@@ -20,14 +20,19 @@ import (
 // transport layer) and passes it straight through to the repository,
 // which enforces ownership at the query level.
 type Service struct {
-	inspections inspection.Repository
-	hives       HiveVerifier
-	media       MediaClient
+	inspections          inspection.Repository
+	hives                HiveVerifier
+	media                MediaClient
+	warningThresholdDays int
 }
 
-// NewService constructs a Service.
-func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient) *Service {
-	return &Service{inspections: inspections, hives: hives, media: media}
+// NewService constructs a Service. warningThresholdDays is the
+// configured "needs inspection" threshold (see
+// beebase-common/inspectionwarning) - this service is the single source
+// of truth for it, echoed back by HiveInspectionStatus so callers never
+// need their own copy.
+func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int) *Service {
+	return &Service{inspections: inspections, hives: hives, media: media, warningThresholdDays: warningThresholdDays}
 }
 
 // Create creates a new inspection owned by userID for in.HiveID, after
@@ -157,6 +162,20 @@ func (s *Service) Update(ctx context.Context, userID uuid.UUID, accessToken stri
 // belongs to userID.
 func (s *Service) Delete(ctx context.Context, userID, inspectionID uuid.UUID) error {
 	return s.inspections.Delete(ctx, userID, inspectionID)
+}
+
+// HiveInspectionStatus returns the latest InspectedAt for every hive
+// userID has ever inspected (a hive with none is simply absent from the
+// map), along with the currently configured inspection warning
+// threshold in days. It performs no ownership check of its own -
+// inspections are already scoped by userID, exactly like List - so
+// there's no hive-service round trip here.
+func (s *Service) HiveInspectionStatus(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, int, error) {
+	latestByHive, err := s.inspections.LatestInspectedAtByHive(ctx, userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("inspection: latest inspected_at by hive: %w", err)
+	}
+	return latestByHive, s.warningThresholdDays, nil
 }
 
 // DeleteByHive hard-deletes every inspection belonging to hiveID and

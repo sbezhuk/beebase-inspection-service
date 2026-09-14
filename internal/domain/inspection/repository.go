@@ -52,7 +52,7 @@ type Repository interface {
 	// non-nil ("asc" or "desc") the page is ordered by creation date in
 	// that direction instead of the default order (InspectedAt); a nil
 	// sortOrder keeps the default order.
-	ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *Type, sortOrder *string) (inspections []*Inspection, total int, err error)
+	ListByUser(ctx context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *Type, dateFrom, dateTo *time.Time, sortOrder *string) (inspections []*Inspection, total int, err error)
 	// Update persists i.InspectedAt, i.Notes, i.Type, and i.UpdatedAt for
 	// the inspection identified by i.ID, scoped to i.UserID. HiveID is
 	// immutable and never updated.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/inspectionwarning"
 	"github.com/sbezhuk/beebase-common/pagination"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
@@ -171,6 +172,24 @@ func (f *fakeRepo) DeleteByHive(_ context.Context, userID, hiveID uuid.UUID) ([]
 	return images, count, nil
 }
 
+// LatestInspectedAtByHive mirrors the real repository's GROUP BY
+// hive_id, MAX(inspected_at): only non-deleted inspections count, and a
+// hive with none is simply absent from the result.
+func (f *fakeRepo) LatestInspectedAtByHive(_ context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[uuid.UUID]time.Time)
+	for _, i := range f.byID {
+		if i.UserID != userID || i.DeletedAt != nil {
+			continue
+		}
+		if latest, ok := out[i.HiveID]; !ok || i.InspectedAt.After(latest) {
+			out[i.HiveID] = i.InspectedAt
+		}
+	}
+	return out, nil
+}
+
 // --- fake media client ---
 
 // fakeMediaClient stands in for application/inspection.MediaClient:
@@ -257,7 +276,7 @@ func inspectedAt() time.Time {
 
 func TestCreate_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "user-token"
@@ -289,7 +308,7 @@ func TestCreate_Success(t *testing.T) {
 // they know its ID.
 func TestCreate_HiveNotOwnedByCaller(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	someoneElsesHive := uuid.New()
 	// Deliberately not calling verifier.allow for this token/hive pair.
 
@@ -306,7 +325,7 @@ func TestCreate_HiveNotOwnedByCaller(t *testing.T) {
 
 func TestCreate_UnknownHive(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 
 	_, err := svc.Create(context.Background(), uuid.New(), "some-token", appinspection.CreateInput{
 		HiveID:      uuid.New(),
@@ -321,7 +340,7 @@ func TestCreate_UnknownHive(t *testing.T) {
 
 func TestGet_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -347,7 +366,7 @@ func TestGet_Success(t *testing.T) {
 }
 
 func TestGet_NotFound(t *testing.T) {
-	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
 
 	_, err := svc.Get(context.Background(), uuid.New(), uuid.New())
 	if !errors.Is(err, inspection.ErrNotFound) {
@@ -359,7 +378,7 @@ func TestGet_NotFound(t *testing.T) {
 // every subsequent read too, not just at creation time.
 func TestGet_WrongOwner_ReturnsNotFound(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	owner := uuid.New()
 	other := uuid.New()
 	hiveID := uuid.New()
@@ -381,7 +400,7 @@ func TestGet_WrongOwner_ReturnsNotFound(t *testing.T) {
 
 func TestListByHive_ReturnsOnlyOwnInspectionsForThatHive(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userA := uuid.New()
 	userB := uuid.New()
 	hiveA1 := uuid.New()
@@ -423,7 +442,7 @@ func TestListByHive_ReturnsOnlyOwnInspectionsForThatHive(t *testing.T) {
 
 func TestListByHive_Pagination(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -472,7 +491,7 @@ func TestListByHive_Pagination(t *testing.T) {
 }
 
 func TestListByHive_Empty(t *testing.T) {
-	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
 
 	list, total, err := svc.ListByHive(context.Background(), uuid.New(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil, nil, nil)
 	if err != nil {
@@ -488,7 +507,7 @@ func TestListByHive_Empty(t *testing.T) {
 
 func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	owner := uuid.New()
 	other := uuid.New()
 	hiveID := uuid.New()
@@ -512,7 +531,7 @@ func TestListByHive_OtherUsersHiveReturnsEmpty(t *testing.T) {
 
 func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userA := uuid.New()
 	userB := uuid.New()
 	hiveA1 := uuid.New()
@@ -560,7 +579,7 @@ func TestList_ReturnsOnlyOwnInspectionsAcrossEveryHive(t *testing.T) {
 
 func TestList_Pagination(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -587,7 +606,7 @@ func TestList_Pagination(t *testing.T) {
 }
 
 func TestList_Empty(t *testing.T) {
-	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
 
 	list, total, err := svc.List(context.Background(), uuid.New(), pagination.Params{Page: 1, Limit: pagination.DefaultLimit}, nil, nil, nil)
 	if err != nil {
@@ -606,7 +625,7 @@ func TestList_Empty(t *testing.T) {
 // while an omitted (nil) type returns every type.
 func TestListByHive_FilterByType(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -642,7 +661,7 @@ func TestListByHive_FilterByType(t *testing.T) {
 // cross-hive List, also proving the filter respects ownership.
 func TestList_FilterByType(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userA := uuid.New()
 	userB := uuid.New()
 	hiveA := uuid.New()
@@ -683,7 +702,7 @@ func TestList_FilterByType(t *testing.T) {
 // through the service.
 func TestListByHive_FilterByTypeCombinedWithSearchAndPagination(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -730,7 +749,7 @@ func TestListByHive_FilterByTypeCombinedWithSearchAndPagination(t *testing.T) {
 
 func TestUpdate_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -768,7 +787,7 @@ func TestUpdate_Success(t *testing.T) {
 
 func TestUpdate_WrongOwner_ReturnsNotFound(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	owner := uuid.New()
 	other := uuid.New()
 	hiveID := uuid.New()
@@ -798,7 +817,7 @@ func TestUpdate_WrongOwner_ReturnsNotFound(t *testing.T) {
 
 func TestDelete_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -822,7 +841,7 @@ func TestDelete_Success(t *testing.T) {
 
 func TestDelete_WrongOwner_ReturnsNotFoundAndDoesNotDelete(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	owner := uuid.New()
 	other := uuid.New()
 	hiveID := uuid.New()
@@ -847,7 +866,7 @@ func TestDelete_WrongOwner_ReturnsNotFoundAndDoesNotDelete(t *testing.T) {
 
 func TestDeleteByHive_DeletesOnlyThatHivesInspections(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	userID := uuid.New()
 	hiveA := uuid.New()
 	hiveB := uuid.New()
@@ -893,7 +912,7 @@ func TestDeleteByHive_DeletesOnlyThatHivesInspections(t *testing.T) {
 
 func TestDeleteByHive_ScopedToUser(t *testing.T) {
 	verifier := newFakeHiveVerifier()
-	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 14)
 	owner := uuid.New()
 	other := uuid.New()
 	hiveID := uuid.New()
@@ -921,7 +940,7 @@ func TestDeleteByHive_ScopedToUser(t *testing.T) {
 }
 
 func TestDeleteByHive_ZeroMatchesIsNotAnError(t *testing.T) {
-	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient())
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
 
 	count, err := svc.DeleteByHive(context.Background(), uuid.New(), "some-token", uuid.New())
 	if err != nil {
@@ -938,7 +957,7 @@ func TestDeleteByHive_ZeroMatchesIsNotAnError(t *testing.T) {
 func TestCreate_WithImages_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -972,7 +991,7 @@ func TestCreate_WithImages_Success(t *testing.T) {
 func TestCreate_WithImages_RejectsForeignMedia(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient() // foreign is deliberately never own()'d
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -993,7 +1012,7 @@ func TestCreate_WithImages_RejectsForeignMedia(t *testing.T) {
 func TestUpdate_ImagesNil_LeavesImagesUntouched(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1028,7 +1047,7 @@ func TestUpdate_ImagesNil_LeavesImagesUntouched(t *testing.T) {
 func TestUpdate_ImagesEmpty_ClearsReferencesWithoutDeletingFiles(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1065,7 +1084,7 @@ func TestUpdate_ImagesEmpty_ClearsReferencesWithoutDeletingFiles(t *testing.T) {
 func TestUpdate_ImagesReplacedWholesale(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1104,7 +1123,7 @@ func TestUpdate_ImagesReplacedWholesale(t *testing.T) {
 func TestUpdate_ImagesRejectsForeignMedia(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient() // foreign is deliberately never own()'d
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1144,7 +1163,7 @@ func TestUpdate_ImagesRejectsForeignMedia(t *testing.T) {
 func TestDeleteByHive_DeletesAttachedMedia(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(newFakeRepo(), verifier, media)
+	svc := appinspection.NewService(newFakeRepo(), verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1172,7 +1191,7 @@ func TestCreate_WithImages_MaxLimit_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1203,7 +1222,7 @@ func TestCreate_WithImages_ExceedsLimit_ReturnsMediaLimitReached(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1231,7 +1250,7 @@ func TestCreate_WithImages_DuplicatesCountTowardUniqueLimit(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1263,7 +1282,7 @@ func TestUpdate_WithImages_MaxLimit_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1303,7 +1322,7 @@ func TestUpdate_WithImages_ExceedsLimit_ReturnsMediaLimitReached(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1340,7 +1359,7 @@ func TestUpdate_WithExistingImages_ExceedsLimit_PreservesExistingImages(t *testi
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1397,7 +1416,7 @@ func TestUpdate_WithExistingImages_NilImages_PreservesExistingImages(t *testing.
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1446,7 +1465,7 @@ func TestUpdate_WithExistingImages_ReplacesUpToLimit_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1498,7 +1517,7 @@ func TestMediaLimit_IndependentPerInspection(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	repo := newFakeRepo()
 	media := newFakeMediaClient()
-	svc := appinspection.NewService(repo, verifier, media)
+	svc := appinspection.NewService(repo, verifier, media, 14)
 	userID := uuid.New()
 	hiveID := uuid.New()
 	token := "token"
@@ -1537,5 +1556,72 @@ func TestMediaLimit_IndependentPerInspection(t *testing.T) {
 
 	if len(ins1.Images) != 5 || len(ins2.Images) != 5 {
 		t.Fatalf("expected both inspections to have 5 photos, got %d and %d", len(ins1.Images), len(ins2.Images))
+	}
+}
+
+func TestHiveInspectionStatus_LatestPerHiveAndThreshold(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appinspection.NewService(newFakeRepo(), verifier, newFakeMediaClient(), 21)
+	userID := uuid.New()
+	hiveA := uuid.New()
+	hiveB := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveA)
+
+	older := inspectedAt()
+	newer := inspectedAt().Add(48 * time.Hour)
+
+	if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID: hiveA, InspectedAt: older, Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("Create (older): %v", err)
+	}
+	verifier.allow(token, hiveA)
+	if _, err := svc.Create(context.Background(), userID, token, appinspection.CreateInput{
+		HiveID: hiveA, InspectedAt: newer, Type: inspection.TypeRoutine,
+	}); err != nil {
+		t.Fatalf("Create (newer): %v", err)
+	}
+
+	latestByHive, thresholdDays, err := svc.HiveInspectionStatus(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("HiveInspectionStatus: %v", err)
+	}
+	if thresholdDays != 21 {
+		t.Errorf("thresholdDays = %d, want 21 (the configured value)", thresholdDays)
+	}
+	got, ok := latestByHive[hiveA]
+	if !ok || !got.Equal(newer) {
+		t.Errorf("latestByHive[hiveA] = %v, ok=%v, want %v (the newer of the two)", got, ok, newer)
+	}
+	if _, ok := latestByHive[hiveB]; ok {
+		t.Error("latestByHive contains hiveB, want it absent (never inspected)")
+	}
+}
+
+func TestHiveInspectionStatus_NoInspectionsYieldsEmptyMap(t *testing.T) {
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), 14)
+
+	latestByHive, thresholdDays, err := svc.HiveInspectionStatus(context.Background(), uuid.New())
+	if err != nil {
+		t.Fatalf("HiveInspectionStatus: %v", err)
+	}
+	if len(latestByHive) != 0 {
+		t.Errorf("latestByHive = %+v, want empty", latestByHive)
+	}
+	if thresholdDays != 14 {
+		t.Errorf("thresholdDays = %d, want 14", thresholdDays)
+	}
+}
+
+func TestHiveInspectionStatus_DefaultThresholdIsFourteenDays(t *testing.T) {
+	svc := appinspection.NewService(newFakeRepo(), newFakeHiveVerifier(), newFakeMediaClient(), inspectionwarning.DefaultThresholdDays)
+
+	_, thresholdDays, err := svc.HiveInspectionStatus(context.Background(), uuid.New())
+	if err != nil {
+		t.Fatalf("HiveInspectionStatus: %v", err)
+	}
+	if thresholdDays != 14 {
+		t.Errorf("thresholdDays = %d, want 14 (the default)", thresholdDays)
 	}
 }

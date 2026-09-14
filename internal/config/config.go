@@ -5,7 +5,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
+
+	"github.com/sbezhuk/beebase-common/inspectionwarning"
 )
 
 // Config holds all runtime configuration for the service.
@@ -53,6 +56,16 @@ type Config struct {
 	// create/update, and to hard-delete an inspection's files when it's
 	// cascade-deleted alongside its hive.
 	MediaServiceURL string
+
+	// InspectionWarningThresholdDays is the number of days after a
+	// hive's latest inspection that it's considered to need inspection
+	// (see beebase-common/inspectionwarning). This service is the
+	// single source of truth for this value - hive-service (to filter
+	// hive listings) and statistics-service (to report it on the
+	// Dashboard) both read it from here (GET
+	// /api/v1/inspections/hive-status) rather than configuring their
+	// own copy, so there is exactly one place to change it.
+	InspectionWarningThresholdDays int
 }
 
 // Load builds a Config from environment variables, falling back to
@@ -79,6 +92,8 @@ func Load() (*Config, error) {
 		HiveServiceURL:  getEnv("HIVE_SERVICE_URL", ""),
 		PublicBaseURL:   getEnv("PUBLIC_BASE_URL", ""),
 		MediaServiceURL: getEnv("MEDIA_SERVICE_URL", ""),
+
+		InspectionWarningThresholdDays: getInt("INSPECTION_WARNING_THRESHOLD_DAYS", inspectionwarning.DefaultThresholdDays),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -120,4 +135,16 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func getInt(key string, fallback int) int {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }

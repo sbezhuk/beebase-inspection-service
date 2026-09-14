@@ -1130,3 +1130,83 @@ func TestInspectionRepository_ListByHive_DateFilterCombinedWithSearchTypeAndPagi
 		t.Fatalf("ListByHive combined: unexpected result %+v", page[0])
 	}
 }
+
+func TestInspectionRepository_LatestInspectedAtByHive_MaxPerHiveExcludingDeleted(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveWithTwo := uuid.New()
+	hiveWithOneDeleted := uuid.New()
+	hiveNeverInspected := uuid.New()
+
+	older := inspectedAt()
+	newer := inspectedAt().Add(48 * time.Hour)
+
+	if err := repo.Create(ctx, inspection.New(userID, hiveWithTwo, older, "first", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create older: %v", err)
+	}
+	newest := inspection.New(userID, hiveWithTwo, newer, "second", inspection.TypeRoutine)
+	if err := repo.Create(ctx, newest); err != nil {
+		t.Fatalf("create newer: %v", err)
+	}
+
+	deleted := inspection.New(userID, hiveWithOneDeleted, older, "will be deleted", inspection.TypeRoutine)
+	if err := repo.Create(ctx, deleted); err != nil {
+		t.Fatalf("create deleted: %v", err)
+	}
+	if err := repo.Delete(ctx, userID, deleted.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	latestByHive, err := repo.LatestInspectedAtByHive(ctx, userID)
+	if err != nil {
+		t.Fatalf("LatestInspectedAtByHive: %v", err)
+	}
+
+	got, ok := latestByHive[hiveWithTwo]
+	if !ok || !got.Equal(newer) {
+		t.Errorf("latestByHive[hiveWithTwo] = %v, ok=%v, want %v (the more recent of the two)", got, ok, newer)
+	}
+	if _, ok := latestByHive[hiveWithOneDeleted]; ok {
+		t.Error("latestByHive contains hiveWithOneDeleted, want it absent - its only inspection was deleted")
+	}
+	if _, ok := latestByHive[hiveNeverInspected]; ok {
+		t.Error("latestByHive contains hiveNeverInspected, want it absent")
+	}
+}
+
+func TestInspectionRepository_LatestInspectedAtByHive_ScopedToUser(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	owner := uuid.New()
+	other := uuid.New()
+	hiveID := uuid.New()
+
+	if err := repo.Create(ctx, inspection.New(owner, hiveID, inspectedAt(), "mine", inspection.TypeRoutine)); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	latestByHive, err := repo.LatestInspectedAtByHive(ctx, other)
+	if err != nil {
+		t.Fatalf("LatestInspectedAtByHive: %v", err)
+	}
+	if _, ok := latestByHive[hiveID]; ok {
+		t.Error("another user's inspection leaked into LatestInspectedAtByHive")
+	}
+}

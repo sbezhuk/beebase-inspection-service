@@ -58,7 +58,7 @@ type Handler struct {
 	log           *slog.Logger
 	publicBaseURL string
 	reminders     interface {
-		Cleanup(context.Context, string, uuid.UUID) error
+		Cleanup(context.Context, string, string, uuid.UUID) error
 	}
 }
 
@@ -66,7 +66,7 @@ type Handler struct {
 // gateway's externally reachable base URL, used to build each image's
 // image_url.
 func NewHandler(service *appinspection.Service, log *slog.Logger, publicBaseURL string, reminders ...interface {
-	Cleanup(context.Context, string, uuid.UUID) error
+	Cleanup(context.Context, string, string, uuid.UUID) error
 }) *Handler {
 	h := &Handler{service: service, log: log, publicBaseURL: publicBaseURL}
 	if len(reminders) > 0 {
@@ -341,7 +341,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 // Delete handles DELETE /inspections/{inspectionID}.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID, _, ok := h.requireAuth(w, r)
+	userID, token, ok := h.requireAuth(w, r)
 	if !ok {
 		return
 	}
@@ -358,7 +358,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 	if h.reminders != nil {
-		if err := h.reminders.Cleanup(r.Context(), "inspection", inspectionID); err != nil {
+		if err := h.reminders.Cleanup(r.Context(), token, "inspection", inspectionID); err != nil {
 			h.log.Warn("reminder cleanup failed", "entity_type", "inspection", "entity_id", inspectionID, "error", err)
 		}
 	}

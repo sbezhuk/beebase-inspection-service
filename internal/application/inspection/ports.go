@@ -39,4 +39,3 @@ const (
 	// MaxMediaAttachments is the maximum number of media attachments allowed per inspection.
 	MaxMediaAttachments = 5
 )
-

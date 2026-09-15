@@ -53,8 +53,7 @@ const minSearchLength = 3
 
 // dateFilterLayout is the ISO 8601 calendar-date format the date_from/
 // date_to query parameters must use - a date only, no time-of-day or
-// offset (unlike inspected_at in the request body, which is a full RFC
-// 3339 timestamp).
+// offset. The same format is used by the inspectedAt request field.
 const dateFilterLayout = "2006-01-02"
 
 // Handler exposes the inspection HTTP endpoints. Every method requires
@@ -94,7 +93,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	// Already validated as well-formed by CreateRequest.Validate.
 	hiveID, _ := uuid.Parse(req.HiveID)
-	inspectedAt, _ := time.Parse(time.RFC3339, req.InspectedAt)
+	inspectedAt, _ := time.Parse(dateFilterLayout, req.InspectedAt)
 
 	images := make([]uuid.UUID, len(req.Images))
 	for i, s := range req.Images {
@@ -320,7 +319,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
-	inspectedAt, _ := time.Parse(time.RFC3339, req.InspectedAt)
+	inspectedAt, _ := time.Parse(dateFilterLayout, req.InspectedAt)
 
 	var images *[]uuid.UUID
 	if req.Images != nil {

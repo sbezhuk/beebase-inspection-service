@@ -57,7 +57,7 @@ func decodeAndValidate(w http.ResponseWriter, r *http.Request, dst validatable) 
 // CreateRequest is the body of POST /inspections.
 type CreateRequest struct {
 	HiveID      string `json:"hiveId"`
-	InspectedAt string `json:"inspectedAt"` // RFC 3339
+	InspectedAt string `json:"inspectedAt"` // ISO 8601 calendar date (YYYY-MM-DD)
 	Notes       string `json:"notes"`
 	Type        string `json:"type"`
 	// Images is the set of already-uploaded media ids to attach
@@ -125,7 +125,7 @@ func validateFields(inspectedAt, notes, typ string) map[string]string {
 	case strings.TrimSpace(inspectedAt) == "":
 		fields["inspectedAt"] = CodeInspectedAtRequired
 	default:
-		if _, err := time.Parse(time.RFC3339, inspectedAt); err != nil {
+		if _, err := time.Parse("2006-01-02", inspectedAt); err != nil {
 			fields["inspectedAt"] = CodeInspectedAtInvalid
 		}
 	}

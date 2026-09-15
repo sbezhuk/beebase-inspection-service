@@ -53,7 +53,7 @@ HIVE_ID=...  # a hive that TOKEN's owner created via hive-service
 
 curl -X POST http://localhost:8080/api/v1/inspections \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d "{\"hive_id\":\"$HIVE_ID\",\"inspected_at\":\"2026-03-15T09:00:00Z\",\"notes\":\"queen seen, brood pattern good\"}"
+  -d "{\"hive_id\":\"$HIVE_ID\",\"inspected_at\":\"2026-03-15\",\"notes\":\"queen seen, brood pattern good\"}"
 
 curl "http://localhost:8080/api/v1/hives/$HIVE_ID/inspections" -H "Authorization: Bearer $TOKEN"
 ```

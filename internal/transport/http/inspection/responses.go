@@ -26,7 +26,7 @@ type ImageResponse struct {
 type Response struct {
 	ID          uuid.UUID       `json:"id"`
 	HiveID      uuid.UUID       `json:"hiveId"`
-	InspectedAt time.Time       `json:"inspectedAt"`
+	InspectedAt string          `json:"inspectedAt"`
 	Notes       string          `json:"notes"`
 	Type        inspection.Type `json:"type"`
 	TypeLabel   string          `json:"typeLabel"`
@@ -47,7 +47,7 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 	return Response{
 		ID:          i.ID,
 		HiveID:      i.HiveID,
-		InspectedAt: i.InspectedAt,
+		InspectedAt: i.InspectedAt.Format("2006-01-02"),
 		Notes:       i.Notes,
 		Type:        i.Type,
 		TypeLabel:   i.Type.Label(),

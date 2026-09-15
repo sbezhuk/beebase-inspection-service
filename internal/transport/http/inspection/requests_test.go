@@ -11,7 +11,7 @@ import (
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
-const validInspectedAt = "2026-03-15T09:00:00Z"
+const validInspectedAt = "2026-03-15"
 
 func TestCreateRequest_Validate(t *testing.T) {
 	validHiveID := uuid.New().String()
@@ -67,8 +67,8 @@ func TestCreateRequest_Validate(t *testing.T) {
 			want: map[string]string{
 				"hiveId":      CodeHiveIDInvalid,
 				"inspectedAt": CodeInspectedAtRequired,
-				"notes":        CodeNotesRequired,
-				"type":         CodeTypeInvalid,
+				"notes":       CodeNotesRequired,
+				"type":        CodeTypeInvalid,
 			},
 		},
 	}

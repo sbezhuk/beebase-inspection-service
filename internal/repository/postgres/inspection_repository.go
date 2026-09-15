@@ -140,15 +140,15 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 		cond := fmt.Sprintf(" AND inspected_at >= $%d", argIdx)
 		countQ += cond
 		q += cond
-		countArgs = append(countArgs, *dateFrom)
+		countArgs = append(countArgs, dateFrom.Format("2006-01-02"))
 		argIdx++
 	}
 
 	if dateTo != nil {
-		cond := fmt.Sprintf(" AND inspected_at <= $%d", argIdx)
+		cond := fmt.Sprintf(" AND inspected_at < $%d", argIdx)
 		countQ += cond
 		q += cond
-		countArgs = append(countArgs, *dateTo)
+		countArgs = append(countArgs, dateTo.Format("2006-01-02"))
 		argIdx++
 	}
 

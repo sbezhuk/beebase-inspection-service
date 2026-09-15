@@ -53,19 +53,19 @@ func NewRouter(
 			// sibling of "/{inspectionID}" rather than under it, so it
 			// can never be confused with an inspection id.
 			r.Get("/hive-status", inspectionHandler.HiveInspectionStatus)
-			r.Get("/{inspectionID}", inspectionHandler.Get)
-			r.Put("/{inspectionID}", inspectionHandler.Update)
-			r.Delete("/{inspectionID}", inspectionHandler.Delete)
+			r.Get("/{inspectionId}", inspectionHandler.Get)
+			r.Put("/{inspectionId}", inspectionHandler.Update)
+			r.Delete("/{inspectionId}", inspectionHandler.Delete)
 		})
 
 		// Listing scoped to one hive stays a separate endpoint from the
 		// flat "list everything I own" above - it's what hive/inspection
 		// detail screens actually want, and statistics-service uses the
 		// flat form instead of fanning this out per hive.
-		r.Get("/api/v1/hives/{hiveID}/inspections", inspectionHandler.ListByHive)
+		r.Get("/api/v1/hives/{hiveId}/inspections", inspectionHandler.ListByHive)
 		// Internal cascade primitive: called by hive-service when it
 		// deletes a hive, forwarding the caller's own access token.
-		r.Delete("/api/v1/hives/{hiveID}/inspections", inspectionHandler.DeleteByHive)
+		r.Delete("/api/v1/hives/{hiveId}/inspections", inspectionHandler.DeleteByHive)
 	})
 
 	return r

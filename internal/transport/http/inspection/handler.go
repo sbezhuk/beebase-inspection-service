@@ -170,7 +170,7 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveID"))
+	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveId"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
 		return
@@ -241,8 +241,8 @@ func parseType(r *http.Request, fields map[string]string) (*inspection.Type, map
 // dates, not as the adjusted bounds returned here); given alone, each
 // applies independently, and neither requires the other.
 func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateTo *time.Time, _ map[string]string) {
-	rawFrom := r.URL.Query().Get("date_from")
-	rawTo := r.URL.Query().Get("date_to")
+	rawFrom := r.URL.Query().Get("dateFrom")
+	rawTo := r.URL.Query().Get("dateTo")
 
 	var fromDay, toDay *time.Time
 
@@ -252,7 +252,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 			if fields == nil {
 				fields = map[string]string{}
 			}
-			fields["date_from"] = CodeInvalidDateFrom
+			fields["dateFrom"] = CodeInvalidDateFrom
 		} else {
 			fromDay = &parsed
 			dateFrom = &parsed
@@ -265,7 +265,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 			if fields == nil {
 				fields = map[string]string{}
 			}
-			fields["date_to"] = CodeInvalidDateTo
+			fields["dateTo"] = CodeInvalidDateTo
 		} else {
 			toDay = &parsed
 			exclusive := parsed.AddDate(0, 0, 1)
@@ -277,7 +277,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 		if fields == nil {
 			fields = map[string]string{}
 		}
-		fields["date_to"] = CodeInvalidDateRange
+		fields["dateTo"] = CodeInvalidDateRange
 	}
 
 	return dateFrom, dateTo, fields
@@ -379,7 +379,7 @@ func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveID"))
+	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveId"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
 		return
@@ -438,7 +438,7 @@ func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (uuid.UUID
 }
 
 func (h *Handler) pathInspectionID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	id, err := uuid.Parse(chi.URLParam(r, "inspectionID"))
+	id, err := uuid.Parse(chi.URLParam(r, "inspectionId"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidInspectionID, "inspection id must be a valid UUID")
 		return uuid.Nil, false

@@ -163,12 +163,12 @@ paths:
             unfiltered by type.
           required: false
           schema: { $ref: "#/components/schemas/InspectionType" }
-        - name: date_from
+        - name: dateFrom
           in: query
           description: Inclusive lower bound on inspected_at as YYYY-MM-DD.
           required: false
           schema: { type: string, format: date }
-        - name: date_to
+        - name: dateTo
           in: query
           description: Inclusive upper bound on inspected_at as YYYY-MM-DD; date_from must not be later.
           required: false
@@ -360,7 +360,7 @@ paths:
             unfiltered by type.
           required: false
           schema: { $ref: "#/components/schemas/InspectionType" }
-        - name: date_from
+        - name: dateFrom
           in: query
           description: >
             Optional inclusive lower bound on inspected_at, as an ISO 8601
@@ -371,7 +371,7 @@ paths:
             AND semantics.
           required: false
           schema: { type: string, format: date }
-        - name: date_to
+        - name: dateTo
           in: query
           description: >
             Optional inclusive upper bound on inspected_at, as an ISO 8601
@@ -443,10 +443,10 @@ components:
 
     CreateInspectionRequest:
       type: object
-      required: [hive_id, inspected_at, notes, type]
+      required: [hiveId, inspectedAt, notes, type]
       properties:
-        hive_id: { type: string, format: uuid, description: Must be a hive owned by the caller. }
-        inspected_at: { type: string, format: date-time, description: When the inspection took place (RFC 3339). }
+        hiveId: { type: string, format: uuid, description: Must be a hive owned by the caller. }
+        inspectedAt: { type: string, format: date-time, description: When the inspection took place (RFC 3339). }
         notes: { type: string, maxLength: 2000 }
         type: { $ref: "#/components/schemas/InspectionType" }
         images:
@@ -461,9 +461,9 @@ components:
 
     UpdateInspectionRequest:
       type: object
-      required: [inspected_at, notes, type]
+      required: [inspectedAt, notes, type]
       properties:
-        inspected_at: { type: string, format: date-time }
+        inspectedAt: { type: string, format: date-time }
         notes: { type: string, maxLength: 2000 }
         type: { $ref: "#/components/schemas/InspectionType" }
         images:
@@ -483,7 +483,7 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        image_url:
+        imageUrl:
           type: string
           format: uri
           description: >
@@ -499,11 +499,11 @@ components:
       type: object
       properties:
         id: { type: string, format: uuid }
-        hive_id: { type: string, format: uuid }
-        inspected_at: { type: string, format: date-time }
+        hiveId: { type: string, format: uuid }
+        inspectedAt: { type: string, format: date-time }
         notes: { type: string }
         type: { $ref: "#/components/schemas/InspectionType" }
-        type_label:
+        typeLabel:
           type: string
           description: Human-readable label for "type" (e.g. "Routine"), derived server-side.
           example: Routine
@@ -511,20 +511,20 @@ components:
           type: array
           items: { $ref: "#/components/schemas/InspectionImage" }
           description: The media currently attached to this inspection, in reference order.
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
     Pagination:
       type: object
       description: Metadata describing the requested page relative to the full result set.
-      required: [page, limit, total, total_pages, has_next, has_previous]
+      required: [page, limit, total, totalPages, hasNext, hasPrevious]
       properties:
         page: { type: integer, example: 1 }
         limit: { type: integer, example: 20 }
         total: { type: integer, description: Total matching rows across all pages., example: 125 }
-        total_pages: { type: integer, example: 7 }
-        has_next: { type: boolean }
-        has_previous: { type: boolean }
+        totalPages: { type: integer, example: 7 }
+        hasNext: { type: boolean }
+        hasPrevious: { type: boolean }
 
     ErrorResponse:
       type: object

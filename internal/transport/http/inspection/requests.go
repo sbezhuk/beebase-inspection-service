@@ -56,8 +56,8 @@ func decodeAndValidate(w http.ResponseWriter, r *http.Request, dst validatable) 
 
 // CreateRequest is the body of POST /inspections.
 type CreateRequest struct {
-	HiveID      string `json:"hive_id"`
-	InspectedAt string `json:"inspected_at"` // RFC 3339
+	HiveID      string `json:"hiveId"`
+	InspectedAt string `json:"inspectedAt"` // RFC 3339
 	Notes       string `json:"notes"`
 	Type        string `json:"type"`
 	// Images is the set of already-uploaded media ids to attach
@@ -72,10 +72,10 @@ func (r *CreateRequest) Validate() map[string]string {
 
 	switch {
 	case strings.TrimSpace(r.HiveID) == "":
-		fields["hive_id"] = CodeHiveIDRequired
+		fields["hiveId"] = CodeHiveIDRequired
 	default:
 		if _, err := uuid.Parse(r.HiveID); err != nil {
-			fields["hive_id"] = CodeHiveIDInvalid
+			fields["hiveId"] = CodeHiveIDInvalid
 		}
 	}
 
@@ -89,7 +89,7 @@ func (r *CreateRequest) Validate() map[string]string {
 // There's no hive_id here: an inspection can't be moved to a different
 // hive.
 type UpdateRequest struct {
-	InspectedAt string `json:"inspected_at"`
+	InspectedAt string `json:"inspectedAt"`
 	Notes       string `json:"notes"`
 	Type        string `json:"type"`
 	// Images, when present (even as an empty array), is the desired
@@ -123,10 +123,10 @@ func validateFields(inspectedAt, notes, typ string) map[string]string {
 
 	switch {
 	case strings.TrimSpace(inspectedAt) == "":
-		fields["inspected_at"] = CodeInspectedAtRequired
+		fields["inspectedAt"] = CodeInspectedAtRequired
 	default:
 		if _, err := time.Parse(time.RFC3339, inspectedAt); err != nil {
-			fields["inspected_at"] = CodeInspectedAtInvalid
+			fields["inspectedAt"] = CodeInspectedAtInvalid
 		}
 	}
 

@@ -336,8 +336,8 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 
 	// Create
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "queen seen, brood pattern good",
 		"type":         "QUEEN",
 	})
@@ -381,7 +381,7 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 
 	// Update - changes the inspection type from "QUEEN" to "BROOD".
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]string{
-		"inspected_at": "2026-03-16T09:00:00Z",
+		"inspectedAt": "2026-03-16T09:00:00Z",
 		"notes":        "re-inspected: all good",
 		"type":         "BROOD",
 	})
@@ -423,8 +423,8 @@ func TestInspectionFlow_CreateRejectedWhenHiveNotOwned(t *testing.T) {
 	// Deliberately not calling stack.hive.allow for this token/hive pair.
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      someoneElsesHive.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      someoneElsesHive.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "snooping",
 		"type":         "ROUTINE",
 	})
@@ -452,8 +452,8 @@ func TestInspectionFlow_CannotAccessAnotherUsersInspection(t *testing.T) {
 	stack.hive.allow(ownerToken, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", ownerToken, map[string]string{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "owner's inspection",
 		"type":         "ROUTINE",
 	})
@@ -468,7 +468,7 @@ func TestInspectionFlow_CannotAccessAnotherUsersInspection(t *testing.T) {
 		body   any
 	}{
 		{http.MethodGet, nil},
-		{http.MethodPut, map[string]string{"inspected_at": testInspectedAt, "notes": "hijacked", "type": "ROUTINE"}},
+		{http.MethodPut, map[string]string{"inspectedAt": testInspectedAt, "notes": "hijacked", "type": "ROUTINE"}},
 		{http.MethodDelete, nil},
 	}
 	for _, tc := range cases {
@@ -518,8 +518,8 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 	token := stack.tokenFor(t, uuid.New())
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      uuid.New().String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      uuid.New().String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "",
 		"type":         "ROUTINE",
 	})
@@ -528,8 +528,8 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 	}
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      "not-a-uuid",
-		"inspected_at": testInspectedAt,
+		"hiveId":      "not-a-uuid",
+		"inspectedAt": testInspectedAt,
 		"notes":        "ok",
 		"type":         "ROUTINE",
 	})
@@ -538,8 +538,8 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 	}
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      uuid.New().String(),
-		"inspected_at": "not-a-date",
+		"hiveId":      uuid.New().String(),
+		"inspectedAt": "not-a-date",
 		"notes":        "ok",
 		"type":         "ROUTINE",
 	})
@@ -548,8 +548,8 @@ func TestInspectionFlow_ValidationErrors(t *testing.T) {
 	}
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      uuid.New().String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      uuid.New().String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "ok",
 		"type":         "swarm",
 	})
@@ -577,8 +577,8 @@ func TestInspectionFlow_ListPagination(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-			"hive_id":      hiveID.String(),
-			"inspected_at": testInspectedAt,
+			"hiveId":      hiveID.String(),
+			"inspectedAt": testInspectedAt,
 			"notes":        "n/a",
 			"type":         "ROUTINE",
 		})
@@ -614,7 +614,7 @@ func TestInspectionFlow_DeleteByHive(t *testing.T) {
 	stack.hive.allow(token, hiveA)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveA.String(), "inspected_at": testInspectedAt, "notes": "in hiveA", "type": "ROUTINE",
+		"hiveId": hiveA.String(), "inspectedAt": testInspectedAt, "notes": "in hiveA", "type": "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create in hiveA: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -626,7 +626,7 @@ func TestInspectionFlow_DeleteByHive(t *testing.T) {
 	// hiveB too - both inspections still belong to the same userID.
 	stack.hive.allow(token, hiveB)
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveB.String(), "inspected_at": testInspectedAt, "notes": "in hiveB", "type": "ROUTINE",
+		"hiveId": hiveB.String(), "inspectedAt": testInspectedAt, "notes": "in hiveB", "type": "ROUTINE",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create in hiveB: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -702,8 +702,8 @@ func TestInspectionFlow_PhotosAttachOnCreateAndDetachOnUpdate(t *testing.T) {
 	stack.media.own(photo1, photo2)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "queen seen, brood pattern good",
 		"type":         "QUEEN",
 		"images":       []string{photo1.String(), photo2.String()},
@@ -735,7 +735,7 @@ func TestInspectionFlow_PhotosAttachOnCreateAndDetachOnUpdate(t *testing.T) {
 	// only - it must not ask media-service to delete the underlying
 	// files).
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]any{
-		"inspected_at": testInspectedAt,
+		"inspectedAt": testInspectedAt,
 		"notes":        "re-inspected",
 		"type":         "QUEEN",
 		"images":       []string{},
@@ -765,8 +765,8 @@ func TestInspectionFlow_PhotosRejectForeignMedia(t *testing.T) {
 	foreignPhoto := uuid.New() // deliberately never own()'d
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "snooping",
 		"type":         "ROUTINE",
 		"images":       []string{foreignPhoto.String()},
@@ -797,8 +797,8 @@ func TestInspectionFlow_DeleteByHive_DeletesAttachedMedia(t *testing.T) {
 	stack.media.own(photo)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "with a photo",
 		"type":         "ROUTINE",
 		"images":       []string{photo.String()},
@@ -833,8 +833,8 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 
 	// 1. Creating with 5 photos succeeds
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "Inspection 5 photos",
 		"type":         "ROUTINE",
 		"images":       photos,
@@ -855,8 +855,8 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 	tooMany := append(photos, photo6.String())
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]any{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "Inspection 6 photos",
 		"type":         "ROUTINE",
 		"images":       tooMany,
@@ -884,7 +884,7 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 		newPhotos[i] = id.String()
 	}
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]any{
-		"inspected_at": testInspectedAt,
+		"inspectedAt": testInspectedAt,
 		"notes":        "Inspection replaced 5 photos",
 		"type":         "ROUTINE",
 		"images":       newPhotos,
@@ -896,7 +896,7 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 	// 4. Updating with 6 photos fails with media_limit_reached
 	tooManyUpdate := append(newPhotos, photo6.String())
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]any{
-		"inspected_at": testInspectedAt,
+		"inspectedAt": testInspectedAt,
 		"notes":        "Inspection 6 photos update",
 		"type":         "ROUTINE",
 		"images":       tooManyUpdate,
@@ -922,7 +922,7 @@ func TestInspectionFlow_MediaLimit(t *testing.T) {
 
 	// 5. Updating without touching images retains existing 5 photos and succeeds
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]any{
-		"inspected_at": testInspectedAt,
+		"inspectedAt": testInspectedAt,
 		"notes":        "Renamed inspection without changing photos",
 		"type":         "ROUTINE",
 	})
@@ -945,8 +945,8 @@ func seedOneOfEachType(t *testing.T, stack *testStack, token string, hiveID uuid
 	created := make([]inspectionhttp.Response, len(inspection.Types))
 	for i, typ := range inspection.Types {
 		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-			"hive_id":      hiveID.String(),
-			"inspected_at": testInspectedAt,
+			"hiveId":      hiveID.String(),
+			"inspectedAt": testInspectedAt,
 			"notes":        string(typ) + " inspection",
 			"type":         string(typ),
 		})
@@ -1071,8 +1071,8 @@ func TestInspectionFlow_ListFilterByType_CombinedWithSearchAndPagination(t *test
 
 	for i := 0; i < 3; i++ {
 		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-			"hive_id":      hiveID.String(),
-			"inspected_at": testInspectedAt,
+			"hiveId":      hiveID.String(),
+			"inspectedAt": testInspectedAt,
 			"notes":        "queen seen, healthy",
 			"type":         "QUEEN",
 		})
@@ -1082,14 +1082,14 @@ func TestInspectionFlow_ListFilterByType_CombinedWithSearchAndPagination(t *test
 	}
 	// Wrong type, same notes: must be excluded by the type filter.
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "queen seen, healthy", "type": "BROOD",
+		"hiveId": hiveID.String(), "inspectedAt": testInspectedAt, "notes": "queen seen, healthy", "type": "BROOD",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create wrong-type: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 	// Right type, notes that don't match: must be excluded by the search filter.
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "nothing notable", "type": "QUEEN",
+		"hiveId": hiveID.String(), "inspectedAt": testInspectedAt, "notes": "nothing notable", "type": "QUEEN",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create wrong-notes: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -1127,7 +1127,7 @@ func TestInspectionFlow_ListFilterByType_RespectsOwnership(t *testing.T) {
 	stack.hive.allow(ownerToken, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", ownerToken, map[string]string{
-		"hive_id": hiveID.String(), "inspected_at": testInspectedAt, "notes": "owner's queen check", "type": "QUEEN",
+		"hiveId": hiveID.String(), "inspectedAt": testInspectedAt, "notes": "owner's queen check", "type": "QUEEN",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -1181,7 +1181,7 @@ func TestInspectionFlow_ListByHive_DateFilter(t *testing.T) {
 	}
 	for _, d := range dates {
 		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-			"hive_id": hiveID.String(), "inspected_at": d, "notes": "n/a", "type": "ROUTINE",
+			"hiveId": hiveID.String(), "inspectedAt": d, "notes": "n/a", "type": "ROUTINE",
 		})
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("seed %s: status = %d, want %d", d, resp.StatusCode, http.StatusCreated)
@@ -1193,11 +1193,11 @@ func TestInspectionFlow_ListByHive_DateFilter(t *testing.T) {
 		query string
 		want  int
 	}{
-		{"date_from only", "date_from=2026-08-15", 2},                         // aug15, sep1
-		{"date_to only", "date_to=2026-08-15", 2},                             // aug1, aug15 (whole day included)
-		{"both", "date_from=2026-08-15&date_to=2026-08-31", 1},                // only aug15
-		{"exact boundary date", "date_from=2026-09-01&date_to=2026-09-01", 1}, // sep1, inspected at 23:59:59
-		{"range matching nothing", "date_from=2026-01-01&date_to=2026-01-02", 0},
+		{"date_from only", "dateFrom=2026-08-15", 2},                         // aug15, sep1
+		{"date_to only", "dateTo=2026-08-15", 2},                             // aug1, aug15 (whole day included)
+		{"both", "dateFrom=2026-08-15&dateTo=2026-08-31", 1},                // only aug15
+		{"exact boundary date", "dateFrom=2026-09-01&dateTo=2026-09-01", 1}, // sep1, inspected at 23:59:59
+		{"range matching nothing", "dateFrom=2026-01-01&dateTo=2026-01-02", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?"+tc.query, token, nil)
@@ -1213,10 +1213,10 @@ func TestInspectionFlow_ListByHive_DateFilter(t *testing.T) {
 	}
 
 	invalidCases := []string{
-		"date_from=2026/08/01",                    // invalid format
-		"date_to=01-08-2026",                      // invalid format
-		"date_from=2026-08-01T00:00:00Z",          // full timestamp, not a date
-		"date_from=2026-09-01&date_to=2026-08-01", // date_from after date_to
+		"dateFrom=2026/08/01",                    // invalid format
+		"dateTo=01-08-2026",                      // invalid format
+		"dateFrom=2026-08-01T00:00:00Z",          // full timestamp, not a date
+		"dateFrom=2026-09-01&dateTo=2026-08-01", // date_from after date_to
 	}
 	for _, query := range invalidCases {
 		resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?"+query, token, nil)
@@ -1242,7 +1242,7 @@ func TestInspectionFlow_ListByHive_DateFilterCombinedWithSearchTypeAndPagination
 
 	for i := 0; i < 2; i++ {
 		resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-			"hive_id": hiveID.String(), "inspected_at": inRange, "notes": "queen seen, healthy", "type": "QUEEN",
+			"hiveId": hiveID.String(), "inspectedAt": inRange, "notes": "queen seen, healthy", "type": "QUEEN",
 		})
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("create matching %d: status = %d, want %d", i, resp.StatusCode, http.StatusCreated)
@@ -1250,20 +1250,20 @@ func TestInspectionFlow_ListByHive_DateFilterCombinedWithSearchTypeAndPagination
 	}
 	// Right type and notes, wrong date: excluded by the date filter.
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveID.String(), "inspected_at": outOfRange, "notes": "queen seen, healthy", "type": "QUEEN",
+		"hiveId": hiveID.String(), "inspectedAt": outOfRange, "notes": "queen seen, healthy", "type": "QUEEN",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create wrong-date: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 	// Right date and notes, wrong type: excluded by the type filter.
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id": hiveID.String(), "inspected_at": inRange, "notes": "queen seen, healthy", "type": "BROOD",
+		"hiveId": hiveID.String(), "inspectedAt": inRange, "notes": "queen seen, healthy", "type": "BROOD",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create wrong-type: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 
-	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?type=QUEEN&search=healthy&date_from=2026-08-01&date_to=2026-08-31&page=1&limit=1", token, nil)
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/inspections?type=QUEEN&search=healthy&dateFrom=2026-08-01&dateTo=2026-08-31&page=1&limit=1", token, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list type+search+date+pagination: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
@@ -1289,8 +1289,8 @@ func TestInspectionFlow_HiveInspectionStatus(t *testing.T) {
 	stack.hive.allow(token, hiveWithInspection)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      hiveWithInspection.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveWithInspection.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "queen seen",
 		"type":         "QUEEN",
 	})
@@ -1347,8 +1347,8 @@ func TestInspectionFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete
 
 	// Seed one inspection while the hive is still writable.
 	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "before the hive was locked",
 		"type":         "ROUTINE",
 	})
@@ -1364,8 +1364,8 @@ func TestInspectionFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete
 
 	// Create is rejected.
 	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
-		"hive_id":      hiveID.String(),
-		"inspected_at": testInspectedAt,
+		"hiveId":      hiveID.String(),
+		"inspectedAt": testInspectedAt,
 		"notes":        "should be rejected",
 		"type":         "ROUTINE",
 	})
@@ -1384,7 +1384,7 @@ func TestInspectionFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete
 
 	// Update of the pre-existing inspection is also rejected.
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+seeded.ID.String(), token, map[string]string{
-		"inspected_at": testInspectedAt,
+		"inspectedAt": testInspectedAt,
 		"notes":        "trying to hijack",
 		"type":         "ROUTINE",
 	})

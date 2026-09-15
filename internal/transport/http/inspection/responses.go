@@ -16,7 +16,7 @@ import (
 // download route, built fresh on every response.
 type ImageResponse struct {
 	ID       uuid.UUID `json:"id"`
-	ImageURL string    `json:"image_url"`
+	ImageURL string    `json:"imageUrl"`
 }
 
 // Response is the public representation of an inspection. TypeLabel is
@@ -25,14 +25,14 @@ type ImageResponse struct {
 // has to maintain its own copy of the type-to-label mapping.
 type Response struct {
 	ID          uuid.UUID       `json:"id"`
-	HiveID      uuid.UUID       `json:"hive_id"`
-	InspectedAt time.Time       `json:"inspected_at"`
+	HiveID      uuid.UUID       `json:"hiveId"`
+	InspectedAt time.Time       `json:"inspectedAt"`
 	Notes       string          `json:"notes"`
 	Type        inspection.Type `json:"type"`
-	TypeLabel   string          `json:"type_label"`
+	TypeLabel   string          `json:"typeLabel"`
 	Images      []ImageResponse `json:"images"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
 }
 
 // newResponse builds a Response for i. Images is read straight from i -
@@ -68,8 +68,8 @@ func newListResponse(inspections []*inspection.Inspection, publicBaseURL string)
 // HiveInspectionStatusItem is one hive's latest inspection date, as
 // reported in HiveInspectionStatusResponse.Hives.
 type HiveInspectionStatusItem struct {
-	HiveID            uuid.UUID `json:"hive_id"`
-	LatestInspectedAt time.Time `json:"latest_inspected_at"`
+	HiveID            uuid.UUID `json:"hiveId"`
+	LatestInspectedAt time.Time `json:"latestInspectedAt"`
 }
 
 // HiveInspectionStatusResponse is the public representation of GET
@@ -81,7 +81,7 @@ type HiveInspectionStatusItem struct {
 // beebase-common/inspectionwarning) treats any hive id missing here as
 // never inspected.
 type HiveInspectionStatusResponse struct {
-	ThresholdDays int                        `json:"threshold_days"`
+	ThresholdDays int                        `json:"thresholdDays"`
 	Hives         []HiveInspectionStatusItem `json:"hives"`
 }
 

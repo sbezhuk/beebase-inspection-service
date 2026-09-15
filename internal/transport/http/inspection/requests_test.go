@@ -29,22 +29,22 @@ func TestCreateRequest_Validate(t *testing.T) {
 		{
 			name: "missing hive_id",
 			req:  CreateRequest{HiveID: "", InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE"},
-			want: map[string]string{"hive_id": CodeHiveIDRequired},
+			want: map[string]string{"hiveId": CodeHiveIDRequired},
 		},
 		{
 			name: "malformed hive_id",
 			req:  CreateRequest{HiveID: "not-a-uuid", InspectedAt: validInspectedAt, Notes: "ok", Type: "ROUTINE"},
-			want: map[string]string{"hive_id": CodeHiveIDInvalid},
+			want: map[string]string{"hiveId": CodeHiveIDInvalid},
 		},
 		{
 			name: "missing inspected_at",
 			req:  CreateRequest{HiveID: validHiveID, InspectedAt: "", Notes: "ok", Type: "ROUTINE"},
-			want: map[string]string{"inspected_at": CodeInspectedAtRequired},
+			want: map[string]string{"inspectedAt": CodeInspectedAtRequired},
 		},
 		{
 			name: "malformed inspected_at",
 			req:  CreateRequest{HiveID: validHiveID, InspectedAt: "not-a-date", Notes: "ok", Type: "ROUTINE"},
-			want: map[string]string{"inspected_at": CodeInspectedAtInvalid},
+			want: map[string]string{"inspectedAt": CodeInspectedAtInvalid},
 		},
 		{
 			name: "missing notes",
@@ -65,8 +65,8 @@ func TestCreateRequest_Validate(t *testing.T) {
 			name: "everything wrong at once",
 			req:  CreateRequest{HiveID: "bad", InspectedAt: "", Notes: "", Type: "bad"},
 			want: map[string]string{
-				"hive_id":      CodeHiveIDInvalid,
-				"inspected_at": CodeInspectedAtRequired,
+				"hiveId":      CodeHiveIDInvalid,
+				"inspectedAt": CodeInspectedAtRequired,
 				"notes":        CodeNotesRequired,
 				"type":         CodeTypeInvalid,
 			},
@@ -278,46 +278,46 @@ func TestParseDateFilter(t *testing.T) {
 		{name: "omitted"},
 		{
 			name:         "date_from only",
-			query:        "date_from=2026-01-01",
+			query:        "dateFrom=2026-01-01",
 			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
 		},
 		{
 			// date_to is returned as the exclusive start of the next day.
 			name:       "date_to only",
-			query:      "date_to=2026-09-13",
+			query:      "dateTo=2026-09-13",
 			wantDateTo: timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:         "both",
-			query:        "date_from=2026-01-01&date_to=2026-09-13",
+			query:        "dateFrom=2026-01-01&dateTo=2026-09-13",
 			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
 			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:         "exact boundary: date_from equals date_to",
-			query:        "date_from=2026-09-13&date_to=2026-09-13",
+			query:        "dateFrom=2026-09-13&dateTo=2026-09-13",
 			wantDateFrom: timePtr(utcDate(2026, 9, 13)),
 			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:       "invalid date_from format",
-			query:      "date_from=2026/01/01",
-			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+			query:      "dateFrom=2026/01/01",
+			wantFields: map[string]string{"dateFrom": CodeInvalidDateFrom},
 		},
 		{
 			name:       "invalid date_to format",
-			query:      "date_to=13-09-2026",
-			wantFields: map[string]string{"date_to": CodeInvalidDateTo},
+			query:      "dateTo=13-09-2026",
+			wantFields: map[string]string{"dateTo": CodeInvalidDateTo},
 		},
 		{
 			name:       "date_from is a full timestamp, not a date",
-			query:      "date_from=2026-01-01T00:00:00Z",
-			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+			query:      "dateFrom=2026-01-01T00:00:00Z",
+			wantFields: map[string]string{"dateFrom": CodeInvalidDateFrom},
 		},
 		{
 			name:       "date_from after date_to",
-			query:      "date_from=2026-09-14&date_to=2026-09-13",
-			wantFields: map[string]string{"date_to": CodeInvalidDateRange},
+			query:      "dateFrom=2026-09-14&dateTo=2026-09-13",
+			wantFields: map[string]string{"dateTo": CodeInvalidDateRange},
 		},
 	}
 

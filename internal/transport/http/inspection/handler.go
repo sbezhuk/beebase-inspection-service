@@ -41,6 +41,12 @@ const (
 	CodeInvalidDateFrom     = "invalid_date_from"
 	CodeInvalidDateTo       = "invalid_date_to"
 	CodeInvalidDateRange    = "invalid_date_range"
+	// CodeParentResourceProLocked identifies a create/update attempted
+	// against an inspection whose parent hive (or that hive's own parent
+	// apiary) currently requires Pro - reuses hive-service's naming
+	// convention for the same concept, since it's the same meaning from
+	// the client's point of view regardless of which service returned it.
+	CodeParentResourceProLocked = "parent_resource_pro_locked"
 )
 
 const minSearchLength = 3
@@ -446,6 +452,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeInspectionNotFound, "inspection not found")
 	case errors.Is(err, appinspection.ErrHiveNotFound):
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
+	case errors.Is(err, appinspection.ErrHiveReadOnly):
+		httpx.WriteError(w, http.StatusForbidden, CodeParentResourceProLocked, "this inspection's hive requires Pro to edit")
 	case errors.Is(err, appinspection.ErrImageNotFound):
 		httpx.WriteValidationError(w, map[string]string{"images": CodeImageNotFound})
 	case errors.Is(err, appinspection.ErrMediaLimitReached):

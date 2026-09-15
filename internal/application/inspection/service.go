@@ -46,8 +46,12 @@ func NewService(inspections inspection.Repository, hives HiveVerifier, media Med
 // anything is persisted; if verification fails, Create returns the error
 // immediately, having created nothing.
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, accessToken string, in CreateInput) (*inspection.Inspection, error) {
-	if err := s.hives.Verify(ctx, accessToken, in.HiveID); err != nil {
+	writable, err := s.hives.Verify(ctx, accessToken, in.HiveID)
+	if err != nil {
 		return nil, err
+	}
+	if !writable {
+		return nil, ErrHiveReadOnly
 	}
 
 	dedup := dedupeImages(in.Images)
@@ -131,6 +135,21 @@ func (s *Service) Update(ctx context.Context, userID uuid.UUID, accessToken stri
 	i, err := s.inspections.GetByID(ctx, userID, inspectionID)
 	if err != nil {
 		return nil, err
+	}
+
+	// The parent hive must be re-verified on every update, not just at
+	// create time: unlike ownership (fixed forever once created), a
+	// hive's writability changes over time as the caller's subscription
+	// and resource counts change, so it can't safely be assumed from
+	// creation-time state. This brings Update up to the same per-op
+	// check Create already does, and that harvest-service already does
+	// for every operation.
+	writable, err := s.hives.Verify(ctx, accessToken, i.HiveID)
+	if err != nil {
+		return nil, err
+	}
+	if !writable {
+		return nil, ErrHiveReadOnly
 	}
 
 	if in.Images != nil {

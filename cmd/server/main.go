@@ -83,9 +83,9 @@ func run() error {
 	hiveVerifier := hiveclient.New(cfg.HiveServiceURL)
 	mediaClient := mediaclient.New(cfg.MediaServiceURL)
 	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, cfg.InspectionWarningThresholdDays)
-	inspectionHandler := inspectionhttp.NewHandler(inspectionService, log, cfg.PublicBaseURL, notificationclient.New(cfg.NotificationServiceURL))
+	inspectionHandler := inspectionhttp.NewHandler(inspectionService, log, cfg.PublicBaseURL, notificationclient.New(cfg.NotificationServiceURL, cfg.InternalServiceToken))
 
-	router := transporthttp.NewRouter(log, db, inspectionHandler, verifier)
+	router := transporthttp.NewRouter(log, db, inspectionHandler, verifier, cfg.InternalServiceToken)
 
 	srv := server.New(server.Config{
 		Addr:         ":" + cfg.HTTPPort,

@@ -50,23 +50,32 @@ func (alwaysActiveSessionChecker) IsActive(_ context.Context, _, _ uuid.UUID) (b
 
 // fakeHiveService stands in for the real hive-service: it owns exactly
 // one hive per bearer token registered via allow, and answers
-// GET /api/v1/hives/{id} exactly like the real service would - 200 if the
-// presented token's owner owns that hive, 404 otherwise - so this test
-// exercises inspection-service's real cross-service HTTP call without
-// needing a second full service running.
+// GET /api/v1/hives/{id} exactly like the real service would - 200 (with
+// a JSON body carrying "writable") if the presented token's owner owns
+// that hive, 404 otherwise - so this test exercises inspection-service's
+// real cross-service HTTP call without needing a second full service
+// running. lock() flips the owned hive to read-only for tests exercising
+// the transitive parent-hive writability check.
 type fakeHiveService struct {
-	mu    sync.Mutex
-	owned map[string]uuid.UUID // "Bearer <token>" -> the one hive it owns
+	mu       sync.Mutex
+	owned    map[string]uuid.UUID // "Bearer <token>" -> the one hive it owns
+	readOnly map[uuid.UUID]bool   // hives explicitly marked not writable
 }
 
 func newFakeHiveService() *fakeHiveService {
-	return &fakeHiveService{owned: map[string]uuid.UUID{}}
+	return &fakeHiveService{owned: map[string]uuid.UUID{}, readOnly: map[uuid.UUID]bool{}}
 }
 
 func (f *fakeHiveService) allow(token string, hiveID uuid.UUID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.owned["Bearer "+token] = hiveID
+}
+
+func (f *fakeHiveService) lock(hiveID uuid.UUID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.readOnly[hiveID] = true
 }
 
 func (f *fakeHiveService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +88,14 @@ func (f *fakeHiveService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+
+	f.mu.Lock()
+	writable := !f.readOnly[hiveID]
+	f.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"writable": writable})
 }
 
 // fakeMediaService stands in for media-service's GET /api/v1/media?ids=
@@ -1311,5 +1327,89 @@ func TestInspectionFlow_HiveInspectionStatus_WithoutTokenIsUnauthorized(t *testi
 	resp := stack.request(t, http.MethodGet, "/api/v1/inspections/hive-status", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("hive-status without token: status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+// TestInspectionFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete
+// is the end-to-end proof (real HTTP handler, real Postgres, real
+// hiveclient HTTP round trip against the fake hive-service) that
+// inspection-service enforces transitive parent-hive writability: a hive
+// hive-service reports as read-only blocks create and update with 403
+// parent_resource_pro_locked, while get and delete remain unaffected -
+// this is the fix for the gap the investigation found (Update never used
+// to re-verify the hive at all).
+func TestInspectionFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete(t *testing.T) {
+	stack := newTestStack(t)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, userID)
+	stack.hive.allow(token, hiveID)
+
+	// Seed one inspection while the hive is still writable.
+	resp := stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id":      hiveID.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "before the hive was locked",
+		"type":         "ROUTINE",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var seeded inspectionhttp.Response
+	decodeJSON(t, resp, &seeded)
+
+	// The hive becomes read-only (e.g. Pro expired and it fell outside
+	// the new Free entitlement).
+	stack.hive.lock(hiveID)
+
+	// Create is rejected.
+	resp = stack.request(t, http.MethodPost, "/api/v1/inspections", token, map[string]string{
+		"hive_id":      hiveID.String(),
+		"inspected_at": testInspectedAt,
+		"notes":        "should be rejected",
+		"type":         "ROUTINE",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("create under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	var errBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeJSON(t, resp, &errBody)
+	if errBody.Error.Code != "parent_resource_pro_locked" {
+		t.Fatalf("create error code = %q, want %q", errBody.Error.Code, "parent_resource_pro_locked")
+	}
+
+	// Update of the pre-existing inspection is also rejected.
+	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+seeded.ID.String(), token, map[string]string{
+		"inspected_at": testInspectedAt,
+		"notes":        "trying to hijack",
+		"type":         "ROUTINE",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("update under a now-read-only hive: status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	decodeJSON(t, resp, &errBody)
+	if errBody.Error.Code != "parent_resource_pro_locked" {
+		t.Fatalf("update error code = %q, want %q", errBody.Error.Code, "parent_resource_pro_locked")
+	}
+
+	// Get still works - historical data stays readable.
+	resp = stack.request(t, http.MethodGet, "/api/v1/inspections/"+seeded.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var got inspectionhttp.Response
+	decodeJSON(t, resp, &got)
+	if got.Notes != "before the hive was locked" {
+		t.Fatalf("get after rejected update: notes = %q, want unchanged", got.Notes)
+	}
+
+	// Delete still works.
+	resp = stack.request(t, http.MethodDelete, "/api/v1/inspections/"+seeded.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusNoContent)
 	}
 }

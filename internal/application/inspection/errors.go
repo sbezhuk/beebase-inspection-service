@@ -22,3 +22,11 @@ var ErrImageNotFound = errors.New("image not found")
 // ErrMediaLimitReached is returned when an attempt is made to attach more
 // photos than permitted by the media attachment limit.
 var ErrMediaLimitReached = errors.New("media limit reached")
+
+// ErrHiveReadOnly is returned when a free-tier user attempts to create or
+// update an inspection whose parent hive currently falls outside their
+// Free entitlement (see hive-service's writable selection) - i.e. the
+// hive itself, or its own parent apiary, requires Pro. Distinct from
+// ErrHiveNotFound: the hive exists and belongs to the caller, it's simply
+// not writable right now.
+var ErrHiveReadOnly = errors.New("hive is read-only under the free plan")

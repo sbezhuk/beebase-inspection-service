@@ -31,7 +31,7 @@ info:
     referenced by more than one. Removing an id from `images` only drops
     the reference; it does not delete the underlying file (cascading a
     hive delete does delete every file its inspections reference).
-  version: 0.7.0
+  version: 0.8.0
 servers:
   - url: http://localhost:8080
 
@@ -112,6 +112,17 @@ paths:
                   - { $ref: "#/components/schemas/ErrorResponse" }
         "401":
           description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: >
+            hive_id exists and belongs to the caller, but is not currently
+            writable under their Free entitlement — either the hive itself
+            or its parent apiary requires Pro (code
+            parent_resource_pro_locked). Historical inspections under it
+            remain fully readable; creating a new one requires the hive to
+            become writable again (promotion, or upgrading to Pro).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -242,7 +253,11 @@ paths:
         images is the one field exempt from full replacement's "always
         set" rule: omitting it (or sending null) leaves the currently
         attached photos untouched, while sending an array (including an
-        empty one) replaces the attached set wholesale.
+        empty one) replaces the attached set wholesale. The parent hive's
+        current writability is re-verified against hive-service on every
+        update, not only at creation time — an inspection whose hive has
+        since become read-only can no longer be edited, even though it
+        remains fully readable.
       requestBody:
         required: true
         content:
@@ -267,6 +282,13 @@ paths:
                   - { $ref: "#/components/schemas/ErrorResponse" }
         "401":
           description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: >
+            The parent hive is not currently writable under the caller's
+            Free entitlement (code parent_resource_pro_locked).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -526,6 +548,7 @@ components:
                 - invalid_body
                 - internal_error
                 - media_limit_reached
+                - parent_resource_pro_locked
               example: inspection_not_found
             message: { type: string, example: inspection not found }
 

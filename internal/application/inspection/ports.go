@@ -7,11 +7,21 @@ import (
 )
 
 // HiveVerifier confirms that a hive belongs to whoever presented
-// accessToken. It's a port because hives (and, transitively, apiaries)
-// live in a different service; this service never queries hive or apiary
-// ownership itself, it only ever asks hive-service.
+// accessToken, and resolves its current Free/Pro writability. It's a port
+// because hives (and, transitively, apiaries) live in a different
+// service; this service never queries hive/apiary ownership or
+// entitlement itself, it only ever asks hive-service - the sole source of
+// truth for both, and in particular the sole source of truth for whether
+// a hive's parent apiary is also within the caller's entitlement (see
+// hive-service's own transitive apiary check).
 type HiveVerifier interface {
-	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) error
+	// Verify confirms hiveID belongs to whoever presented accessToken,
+	// and reports whether hive-service currently considers it writable
+	// (always true under Pro; under Free, true only when its parent
+	// apiary is itself writable and it ranks within the caller's Free
+	// hive entitlement). Returns ErrHiveNotFound if it doesn't belong to
+	// them (or doesn't exist).
+	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) (writable bool, err error)
 }
 
 // MediaClient is inspection-service's dependency on media-service.

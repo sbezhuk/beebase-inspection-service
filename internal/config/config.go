@@ -42,7 +42,8 @@ type Config struct {
 	// be created under a hive the caller owns, and hive-service is the
 	// only source of truth for that (transitively, for apiary ownership
 	// too): this service asks it, once, at creation time.
-	HiveServiceURL string
+	HiveServiceURL         string
+	NotificationServiceURL string
 
 	// PublicBaseURL is the gateway's externally reachable base URL, used
 	// to build the image_url for each entry in a response's `images`.
@@ -88,10 +89,11 @@ func Load() (*Config, error) {
 
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		AuthJWKSURL:     getEnv("AUTH_JWKS_URL", ""),
-		HiveServiceURL:  getEnv("HIVE_SERVICE_URL", ""),
-		PublicBaseURL:   getEnv("PUBLIC_BASE_URL", ""),
-		MediaServiceURL: getEnv("MEDIA_SERVICE_URL", ""),
+		AuthJWKSURL:            getEnv("AUTH_JWKS_URL", ""),
+		HiveServiceURL:         getEnv("HIVE_SERVICE_URL", ""),
+		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", ""),
+		PublicBaseURL:          getEnv("PUBLIC_BASE_URL", ""),
+		MediaServiceURL:        getEnv("MEDIA_SERVICE_URL", ""),
 
 		InspectionWarningThresholdDays: getInt("INSPECTION_WARNING_THRESHOLD_DAYS", inspectionwarning.DefaultThresholdDays),
 	}

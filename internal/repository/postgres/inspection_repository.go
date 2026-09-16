@@ -232,6 +232,11 @@ func (r *InspectionRepository) Delete(ctx context.Context, userID, inspectionID 
 	return nil
 }
 
+func (r *InspectionRepository) DeleteAllByUserHard(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM inspections WHERE user_id = $1`, userID)
+	return err
+}
+
 func (r *InspectionRepository) DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]uuid.UUID, int64, error) {
 	const q = `DELETE FROM inspections WHERE hive_id = $1 AND user_id = $2 RETURNING images`
 
@@ -256,6 +261,23 @@ func (r *InspectionRepository) DeleteByHive(ctx context.Context, userID, hiveID 
 	}
 
 	return allImages, count, nil
+}
+
+func (r *InspectionRepository) ListIDsByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx, `SELECT id FROM inspections WHERE hive_id=$1 AND user_id=$2`, hiveID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *InspectionRepository) LatestInspectedAtByHive(ctx context.Context, userID uuid.UUID) (map[uuid.UUID]time.Time, error) {

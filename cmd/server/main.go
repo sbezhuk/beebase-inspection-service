@@ -82,8 +82,9 @@ func run() error {
 	inspectionRepo := repopostgres.NewInspectionRepository(db)
 	hiveVerifier := hiveclient.New(cfg.HiveServiceURL)
 	mediaClient := mediaclient.New(cfg.MediaServiceURL)
-	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, cfg.InspectionWarningThresholdDays)
-	inspectionHandler := inspectionhttp.NewHandler(inspectionService, log, cfg.PublicBaseURL, notificationclient.New(cfg.NotificationServiceURL, cfg.InternalServiceToken))
+	notifications := notificationclient.New(cfg.NotificationServiceURL, cfg.InternalServiceToken)
+	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, cfg.InspectionWarningThresholdDays, notifications)
+	inspectionHandler := inspectionhttp.NewHandler(inspectionService, log, cfg.PublicBaseURL, notifications)
 
 	router := transporthttp.NewRouter(log, db, inspectionHandler, verifier, cfg.InternalServiceToken)
 

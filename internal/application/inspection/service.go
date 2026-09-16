@@ -24,6 +24,9 @@ type Service struct {
 	hives                HiveVerifier
 	media                MediaClient
 	warningThresholdDays int
+	reminders            interface {
+		Cleanup(context.Context, string, uuid.UUID) error
+	}
 }
 
 // NewService constructs a Service. warningThresholdDays is the
@@ -31,8 +34,14 @@ type Service struct {
 // beebase-common/inspectionwarning) - this service is the single source
 // of truth for it, echoed back by HiveInspectionStatus so callers never
 // need their own copy.
-func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int) *Service {
-	return &Service{inspections: inspections, hives: hives, media: media, warningThresholdDays: warningThresholdDays}
+func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int, reminders ...interface {
+	Cleanup(context.Context, string, uuid.UUID) error
+}) *Service {
+	s := &Service{inspections: inspections, hives: hives, media: media, warningThresholdDays: warningThresholdDays}
+	if len(reminders) > 0 {
+		s.reminders = reminders[0]
+	}
+	return s
 }
 
 // Create creates a new inspection owned by userID for in.HiveID, after
@@ -183,6 +192,16 @@ func (s *Service) Delete(ctx context.Context, userID, inspectionID uuid.UUID) er
 	return s.inspections.Delete(ctx, userID, inspectionID)
 }
 
+func (s *Service) DeleteLocalByUser(ctx context.Context, userID uuid.UUID) error {
+	r, ok := s.inspections.(interface {
+		DeleteAllByUserHard(context.Context, uuid.UUID) error
+	})
+	if !ok {
+		return fmt.Errorf("inspection: repository does not support account cleanup")
+	}
+	return r.DeleteAllByUserHard(ctx, userID)
+}
+
 // HiveInspectionStatus returns the latest InspectedAt for every hive
 // userID has ever inspected (a hive with none is simply absent from the
 // map), along with the currently configured inspection warning
@@ -203,6 +222,17 @@ func (s *Service) HiveInspectionStatus(ctx context.Context, userID uuid.UUID) (m
 // media-service so it can run its own ownership check. Used when
 // hive-service cascades a hive delete.
 func (s *Service) DeleteByHive(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID) (int64, error) {
+	ids, err := s.inspections.ListIDsByHive(ctx, userID, hiveID)
+	if err != nil {
+		return 0, err
+	}
+	if s.reminders != nil {
+		for _, id := range ids {
+			if err := s.reminders.Cleanup(ctx, "inspection", id); err != nil {
+				return 0, err
+			}
+		}
+	}
 	images, count, err := s.inspections.DeleteByHive(ctx, userID, hiveID)
 	if err != nil {
 		return 0, err

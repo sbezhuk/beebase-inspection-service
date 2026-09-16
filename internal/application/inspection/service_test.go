@@ -173,6 +173,18 @@ func (f *fakeRepo) DeleteByHive(_ context.Context, userID, hiveID uuid.UUID) ([]
 	return images, count, nil
 }
 
+func (f *fakeRepo) ListIDsByHive(_ context.Context, userID, hiveID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var ids []uuid.UUID
+	for id, i := range f.byID {
+		if i.UserID == userID && i.HiveID == hiveID {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 // LatestInspectedAtByHive mirrors the real repository's GROUP BY
 // hive_id, MAX(inspected_at): only non-deleted inspections count, and a
 // hive with none is simply absent from the result.

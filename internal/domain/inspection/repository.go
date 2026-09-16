@@ -68,6 +68,7 @@ type Repository interface {
 	// so the caller can hard-delete them from media-service too - nothing
 	// else purges them once their inspection is gone.
 	DeleteByHive(ctx context.Context, userID, hiveID uuid.UUID) (images []uuid.UUID, count int64, err error)
+	ListIDsByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]uuid.UUID, error)
 	// LatestInspectedAtByHive returns the most recent InspectedAt for
 	// every hive userID has at least one (non-deleted) inspection under,
 	// keyed by hive id. A hive with no inspections at all is simply

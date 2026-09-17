@@ -104,8 +104,13 @@ is never used as a fallback, in development or in production.
 | `HTTP_SHUTDOWN_TIMEOUT`     | `15s`                        | Max time to wait for graceful shutdown    |
 | `DATABASE_URL`              | *(required)*                 | PostgreSQL DSN                            |
 | `DATABASE_CONNECT_TIMEOUT`  | `5s`                         | Timeout for the initial DB connection      |
+| `REDIS_ADDR`                | *(required)*                 | Shared Redis session store for token revocation checks |
+| `REDIS_CONNECT_TIMEOUT`     | `5s`                         | Timeout for the initial Redis connection   |
 | `AUTH_JWKS_URL`             | *(required)*                 | auth-service's public key endpoint, used to verify access tokens |
+| `INTERNAL_SERVICE_TOKEN`    | *(required)*                 | Credential for authenticated internal cleanup and existence calls |
 | `HIVE_SERVICE_URL`          | *(required)*                 | hive-service's base URL, used to confirm hive ownership on create |
+| `MEDIA_SERVICE_URL`         | *(required)*                 | media-service base URL used for media ownership and cascade cleanup |
+| `PUBLIC_BASE_URL`           | *(required)*                 | Gateway base URL used to build media download URLs |
 | `INSPECTION_WARNING_THRESHOLD_DAYS` | `14`                 | Days after a hive's latest inspection before it needs inspection - the single source of truth hive-service and statistics-service both read via `GET /api/v1/inspections/hive-status` |
 | `TEST_DATABASE_URL`         | *(unset)*                    | Used only by `make test-integration`, never by the app |
 
@@ -156,14 +161,12 @@ Listing inspections for a hive you don't own returns an empty list
 (`200`), not an error, for the same reason: the caller simply has no
 inspections there, which reveals nothing about the hive itself.
 
-Deletes are soft (`deleted_at` is set, the row is retained) per the
-project's offline-sync plan — inspections are a synchronizable entity.
+Deletes are hard deletes. Hive deletion invokes this service's authenticated
+internal cleanup endpoint before the parent hive is removed.
 
-**Known limitation:** if a hive (or its apiary) is deleted upstream, its
-inspections here are not cascade-deleted or notified — there's no event
-bus or outbox between services yet (CLAUDE.md defers full
-synchronization). Those inspections become orphaned but remain
-independently accessible to their owner until this is addressed.
+Normal hive/apiary deletion invokes this service's authenticated internal
+cleanup endpoint. There is still no general event bus or outbox for
+arbitrary out-of-band synchronization.
 
 ## Development
 

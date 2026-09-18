@@ -27,6 +27,7 @@ const (
 	CodeTypeRequired        = "type_required"
 	CodeTypeInvalid         = "type_invalid"
 	CodeImagesInvalid       = "images_invalid"
+	CodeAssessmentInvalid   = "assessment_invalid"
 )
 
 // validatable is implemented by every request DTO in this package.
@@ -64,7 +65,8 @@ type CreateRequest struct {
 	// immediately - unlike UpdateRequest.Images, there's no "leave alone"
 	// case here since there's nothing to leave alone yet, so an absent/
 	// empty images just means no photos.
-	Images []string `json:"images"`
+	Images     []string           `json:"images"`
+	Assessment *AssessmentRequest `json:"assessment"`
 }
 
 func (r *CreateRequest) Validate() map[string]string {
@@ -80,6 +82,7 @@ func (r *CreateRequest) Validate() map[string]string {
 	}
 
 	validateImages(r.Images, fields)
+	validateAssessment(r.Assessment, r.Type, fields)
 
 	return fields
 }
@@ -98,13 +101,63 @@ type UpdateRequest struct {
 	// currently attached media untouched. Go's json package already
 	// distinguishes "absent/null" (nil slice) from "[]" (non-nil, empty
 	// slice), which is exactly the distinction this needs.
-	Images []string `json:"images"`
+	Images     []string           `json:"images"`
+	Assessment *AssessmentRequest `json:"assessment"`
 }
 
 func (r *UpdateRequest) Validate() map[string]string {
 	fields := validateFields(r.InspectedAt, r.Notes, r.Type)
 	validateImages(r.Images, fields)
+	validateAssessment(r.Assessment, r.Type, fields)
 	return fields
+}
+
+type AssessmentRequest struct {
+	Version        *int    `json:"version"`
+	ColonyStrength *string `json:"colonyStrength"`
+	QueenStatus    *string `json:"queenStatus"`
+	BroodStatus    *string `json:"broodStatus"`
+	FoodStores     *string `json:"foodStores"`
+	HealthConcerns *string `json:"healthConcerns"`
+}
+
+func (r *AssessmentRequest) domain() *inspection.Assessment {
+	if r == nil {
+		return nil
+	}
+	a := &inspection.Assessment{}
+	if r.Version != nil {
+		a.Version = *r.Version
+	}
+	if r.ColonyStrength != nil {
+		v := inspection.ColonyStrength(*r.ColonyStrength)
+		a.ColonyStrength = &v
+	}
+	if r.QueenStatus != nil {
+		v := inspection.QueenStatus(*r.QueenStatus)
+		a.QueenStatus = &v
+	}
+	if r.BroodStatus != nil {
+		v := inspection.BroodStatus(*r.BroodStatus)
+		a.BroodStatus = &v
+	}
+	if r.FoodStores != nil {
+		v := inspection.FoodStores(*r.FoodStores)
+		a.FoodStores = &v
+	}
+	if r.HealthConcerns != nil {
+		v := inspection.HealthConcerns(*r.HealthConcerns)
+		a.HealthConcerns = &v
+	}
+	return a
+}
+
+func validateAssessment(r *AssessmentRequest, typ string, fields map[string]string) {
+	if r != nil {
+		if err := r.domain().ValidateFor(inspection.Type(typ)); err != nil {
+			fields["assessment"] = CodeAssessmentInvalid
+		}
+	}
 }
 
 // validateImages checks that every id in images is a well-formed UUID,

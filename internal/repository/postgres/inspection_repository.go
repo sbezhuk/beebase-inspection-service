@@ -50,16 +50,61 @@ func NewInspectionRepository(db Querier) *InspectionRepository {
 
 func (r *InspectionRepository) Create(ctx context.Context, i *inspection.Inspection) error {
 	const q = `
-		INSERT INTO inspections (id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO inspections (id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at,
+			assessment_version, colony_strength, queen_status, brood_status, food_stores, health_concerns)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`
 
-	_, err := r.db.Exec(ctx, q, i.ID, i.HiveID, i.UserID, i.InspectedAt, i.Notes, i.Type, images(i.Images), i.CreatedAt, i.UpdatedAt)
+	args := []any{i.ID, i.HiveID, i.UserID, i.InspectedAt, i.Notes, i.Type, images(i.Images), i.CreatedAt, i.UpdatedAt}
+	args = append(args, assessmentArgs(i.Assessment)...)
+	_, err := r.db.Exec(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("postgres: create inspection: %w", err)
 	}
 
 	return nil
+}
+
+func assessmentArgs(a *inspection.Assessment) []any {
+	if a == nil {
+		return []any{nil, nil, nil, nil, nil, nil}
+	}
+	return []any{a.Version, nullableAssessmentValue(a.ColonyStrength), nullableAssessmentValue(a.QueenStatus), nullableAssessmentValue(a.BroodStatus), nullableAssessmentValue(a.FoodStores), nullableAssessmentValue(a.HealthConcerns)}
+}
+
+func nullableAssessmentValue[T ~string](v *T) any {
+	if v == nil {
+		return nil
+	}
+	return string(*v)
+}
+
+func scanAssessment(version *int, colony, queen, brood, food, health *string) *inspection.Assessment {
+	if version == nil && colony == nil && queen == nil && brood == nil && food == nil && health == nil {
+		return nil
+	}
+	a := &inspection.Assessment{Version: *version}
+	if colony != nil {
+		v := inspection.ColonyStrength(*colony)
+		a.ColonyStrength = &v
+	}
+	if queen != nil {
+		v := inspection.QueenStatus(*queen)
+		a.QueenStatus = &v
+	}
+	if brood != nil {
+		v := inspection.BroodStatus(*brood)
+		a.BroodStatus = &v
+	}
+	if food != nil {
+		v := inspection.FoodStores(*food)
+		a.FoodStores = &v
+	}
+	if health != nil {
+		v := inspection.HealthConcerns(*health)
+		a.HealthConcerns = &v
+	}
+	return a
 }
 
 // images coalesces a nil slice to an empty one - the images column is NOT
@@ -73,15 +118,18 @@ func images(ids []uuid.UUID) []uuid.UUID {
 
 func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID uuid.UUID) (*inspection.Inspection, error) {
 	const q = `
-		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
+		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at,
+			assessment_version, colony_strength, queen_status, brood_status, food_stores, health_concerns
 		FROM inspections
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`
 
 	var i inspection.Inspection
+	var version *int
+	var colony, queen, brood, food, health *string
 
 	err := r.db.QueryRow(ctx, q, inspectionID, userID).Scan(
-		&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.Images, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt,
+		&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.Images, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt, &version, &colony, &queen, &brood, &food, &health,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -90,6 +138,7 @@ func (r *InspectionRepository) GetByID(ctx context.Context, userID, inspectionID
 		return nil, fmt.Errorf("postgres: get inspection: %w", err)
 	}
 
+	i.Assessment = scanAssessment(version, colony, queen, brood, food, health)
 	return &i, nil
 }
 
@@ -113,7 +162,8 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
 	q := `
-		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at
+		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at,
+			assessment_version, colony_strength, queen_status, brood_status, food_stores, health_concerns
 		FROM inspections
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
@@ -184,9 +234,12 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 	inspections := []*inspection.Inspection{}
 	for rows.Next() {
 		var i inspection.Inspection
-		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.Images, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt); err != nil {
+		var version *int
+		var colony, queen, brood, food, health *string
+		if err := rows.Scan(&i.ID, &i.HiveID, &i.UserID, &i.InspectedAt, &i.Notes, &i.Type, &i.Images, &i.CreatedAt, &i.UpdatedAt, &i.DeletedAt, &version, &colony, &queen, &brood, &food, &health); err != nil {
 			return nil, 0, fmt.Errorf("postgres: scan inspection: %w", err)
 		}
+		i.Assessment = scanAssessment(version, colony, queen, brood, food, health)
 		inspections = append(inspections, &i)
 	}
 	if err := rows.Err(); err != nil {
@@ -199,11 +252,15 @@ func (r *InspectionRepository) list(ctx context.Context, userID uuid.UUID, hiveI
 func (r *InspectionRepository) Update(ctx context.Context, i *inspection.Inspection) error {
 	const q = `
 		UPDATE inspections
-		SET inspected_at = $1, notes = $2, type = $3, images = $4, updated_at = $5
-		WHERE id = $6 AND user_id = $7 AND deleted_at IS NULL
+		SET inspected_at = $1, notes = $2, type = $3, images = $4, updated_at = $5,
+			assessment_version = $6, colony_strength = $7, queen_status = $8, brood_status = $9, food_stores = $10, health_concerns = $11
+		WHERE id = $12 AND user_id = $13 AND deleted_at IS NULL
 	`
 
-	tag, err := r.db.Exec(ctx, q, i.InspectedAt, i.Notes, i.Type, images(i.Images), i.UpdatedAt, i.ID, i.UserID)
+	args := []any{i.InspectedAt, i.Notes, i.Type, images(i.Images), i.UpdatedAt}
+	args = append(args, assessmentArgs(i.Assessment)...)
+	args = append(args, i.ID, i.UserID)
+	tag, err := r.db.Exec(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("postgres: update inspection: %w", err)
 	}

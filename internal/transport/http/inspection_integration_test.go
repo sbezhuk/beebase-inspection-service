@@ -379,7 +379,8 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 		t.Fatalf("list: pagination = %+v, want total=1 page=1 limit=%d", list.Pagination, pagination.DefaultLimit)
 	}
 
-	// Update - changes the inspection type from "QUEEN" to "BROOD".
+	// Update - the legacy request resends a changed type, which must not mutate
+	// the inspection's immutable semantic context.
 	resp = stack.request(t, http.MethodPut, "/api/v1/inspections/"+created.ID.String(), token, map[string]string{
 		"inspectedAt": "2026-03-16",
 		"notes":       "re-inspected: all good",
@@ -393,8 +394,8 @@ func TestInspectionFlow_CreateGetListUpdateDelete(t *testing.T) {
 	if updated.Notes != "re-inspected: all good" {
 		t.Fatalf("update: notes = %q, want %q", updated.Notes, "re-inspected: all good")
 	}
-	if updated.Type != "BROOD" || updated.TypeLabel != "Brood" {
-		t.Fatalf("update: type = %q, type_label = %q, want %q, %q", updated.Type, updated.TypeLabel, "BROOD", "Brood")
+	if updated.Type != "QUEEN" || updated.TypeLabel != "Queen" {
+		t.Fatalf("update: type = %q, type_label = %q, want %q, %q", updated.Type, updated.TypeLabel, "QUEEN", "Queen")
 	}
 	if updated.HiveID != hiveID {
 		t.Fatalf("update: hive_id changed to %s, want unchanged %s", updated.HiveID, hiveID)

@@ -184,6 +184,56 @@ func TestCreateRequest_JSONForeignFieldIsNotSilentlyDiscarded(t *testing.T) {
 	}
 }
 
+func TestCreateRequest_Validate_RejectsFlutterPayloadAfterTypeChange(t *testing.T) {
+	var req CreateRequest
+	err := json.Unmarshal([]byte(`{
+		"hiveId":"00000000-0000-0000-0000-000000000001",
+		"inspectedAt":"2026-09-18",
+		"notes":"Changed type",
+		"type":"QUEEN",
+		"assessment":{
+			"version":1,
+			"colonyStrength":"STRONG",
+			"queenStatus":"HEALTHY",
+			"broodStatus":"HEALTHY",
+			"foodStores":"ADEQUATE",
+			"healthConcerns":"NONE"
+		}
+	}`), &req)
+	if err != nil {
+		t.Fatalf("decode Flutter payload: %v", err)
+	}
+
+	fields := req.Validate()
+	if fields["assessment"] != CodeAssessmentInvalid {
+		t.Fatalf("assessment validation = %q, want %q; fields=%v", fields["assessment"], CodeAssessmentInvalid, fields)
+	}
+}
+
+func TestCreateRequest_Validate_AcceptsFullyCompletedFlutterAssessments(t *testing.T) {
+	cases := map[string]string{
+		"ROUTINE": `{"colonyStrength":"STRONG","queenStatus":"HEALTHY","broodStatus":"HEALTHY","foodStores":"ADEQUATE","healthConcerns":"NONE"}`,
+		"QUEEN": `{"queenObserved":"OBSERVED","eggsObserved":"YES","queenCells":"NONE","queenCondition":"NORMAL"}`,
+		"BROOD": `{"broodAmount":"MODERATE","broodPattern":"SOLID","broodStages":["EGGS","LARVAE","CAPPED"],"broodConcerns":"NONE"}`,
+		"HEALTH": `{"healthOverallCondition":"GOOD","pestSigns":["VARROA_MITES"],"healthWarningSigns":["ABNORMAL_BROOD"],"healthConcernLevel":"LOW"}`,
+		"FEEDING": `{"foodStores":"LOW","feedingNeed":"YES","feedingPerformed":"YES","feedTypes":["SUGAR_SYRUP","POLLEN_SUBSTITUTE"]}`,
+		"SEASONAL": `{"season":"AUTUMN","colonyStrength":"STRONG","seasonalStoreReadiness":"SUFFICIENT","seasonalReadiness":"READY","seasonalConcerns":["FOOD_STORES"]}`,
+	}
+
+	for typ, assessment := range cases {
+		t.Run(typ, func(t *testing.T) {
+			body := []byte(`{"hiveId":"00000000-0000-0000-0000-000000000001","inspectedAt":"2026-09-18","notes":"Complete assessment","type":"` + typ + `","assessment":` + assessment + `}`)
+			var req CreateRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode Flutter payload: %v", err)
+			}
+			if fields := req.Validate(); len(fields) != 0 {
+				t.Fatalf("Validate() = %v, want no errors", fields)
+			}
+		})
+	}
+}
+
 func TestCreateRequest_Validate_Images(t *testing.T) {
 	validHiveID := uuid.New().String()
 

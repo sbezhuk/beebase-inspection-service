@@ -799,14 +799,45 @@ func TestUpdate_Success(t *testing.T) {
 	if updated.Notes != "new notes" {
 		t.Errorf("Notes = %q, want %q", updated.Notes, "new notes")
 	}
-	if updated.Type != inspection.TypeQueen {
-		t.Errorf("Type = %q, want %q", updated.Type, inspection.TypeQueen)
+	if updated.Type != inspection.TypeRoutine {
+		t.Errorf("Type = %q, want immutable original %q", updated.Type, inspection.TypeRoutine)
 	}
 	if !updated.InspectedAt.Equal(newTime) {
 		t.Errorf("InspectedAt = %v, want %v", updated.InspectedAt, newTime)
 	}
 	if updated.HiveID != hiveID {
 		t.Errorf("HiveID changed to %s, want unchanged %s", updated.HiveID, hiveID)
+	}
+}
+
+func TestCreateRoutineAssessmentAndImmutableType(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	repo := newFakeRepo()
+	svc := appinspection.NewService(repo, verifier, newFakeMediaClient(), 14)
+	userID, hiveID := uuid.New(), uuid.New()
+	verifier.allow("token", hiveID)
+	queen := inspection.QueenStatusNotChecked
+	created, err := svc.Create(context.Background(), userID, "token", appinspection.CreateInput{
+		HiveID: hiveID, InspectedAt: inspectedAt(), Notes: "legacy notes", Type: inspection.TypeRoutine,
+		Assessment: &inspection.Assessment{QueenStatus: &queen},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Assessment == nil || created.Assessment.QueenStatus == nil || *created.Assessment.QueenStatus != inspection.QueenStatusNotChecked {
+		t.Fatalf("assessment was not retained: %+v", created.Assessment)
+	}
+	updated, err := svc.Update(context.Background(), userID, "token", created.ID, appinspection.UpdateInput{
+		InspectedAt: inspectedAt(), Notes: "edited", Type: inspection.TypeHealth,
+	})
+	if err != nil {
+		t.Fatalf("legacy Update: %v", err)
+	}
+	if updated.Type != inspection.TypeRoutine {
+		t.Fatalf("type changed to %q", updated.Type)
+	}
+	if updated.Assessment == nil || updated.Assessment.QueenStatus == nil || *updated.Assessment.QueenStatus != inspection.QueenStatusNotChecked {
+		t.Fatalf("assessment changed on legacy update: %+v", updated.Assessment)
 	}
 }
 

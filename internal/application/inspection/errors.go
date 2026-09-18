@@ -30,3 +30,5 @@ var ErrMediaLimitReached = errors.New("media limit reached")
 // ErrHiveNotFound: the hive exists and belongs to the caller, it's simply
 // not writable right now.
 var ErrHiveReadOnly = errors.New("hive is read-only under the free plan")
+
+var ErrAssessmentInvalid = errors.New("invalid inspection assessment")

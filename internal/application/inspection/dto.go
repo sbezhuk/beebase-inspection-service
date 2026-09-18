@@ -14,6 +14,7 @@ type CreateInput struct {
 	InspectedAt time.Time
 	Notes       string
 	Type        inspection.Type
+	Assessment  *inspection.Assessment
 	// Images is the set of already-uploaded media ids to attach
 	// immediately, so a caller doesn't need a separate PUT just to attach
 	// photos. Empty/nil means no images.
@@ -30,6 +31,8 @@ type UpdateInput struct {
 	InspectedAt time.Time
 	Notes       string
 	Type        inspection.Type
+	// Assessment is nil when omitted, preserving the current assessment on update.
+	Assessment *inspection.Assessment
 	// Images is the desired final set of media IDs attached to this
 	// inspection - each one either already attached here, or the
 	// caller's own not-yet-attached upload (media-service links it on the

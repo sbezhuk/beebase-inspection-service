@@ -110,6 +110,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Notes:       req.Notes,
 		Type:        inspection.Type(req.Type),
 		Images:      images,
+		Assessment:  req.Assessment.domain(),
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
@@ -339,6 +340,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		Notes:       req.Notes,
 		Type:        inspection.Type(req.Type),
 		Images:      images,
+		Assessment:  req.Assessment.domain(),
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
@@ -461,6 +463,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteValidationError(w, map[string]string{"images": CodeImageNotFound})
 	case errors.Is(err, appinspection.ErrMediaLimitReached):
 		httpx.WriteError(w, http.StatusBadRequest, CodeMediaLimitReached, "maximum 5 photos allowed")
+	case errors.Is(err, appinspection.ErrAssessmentInvalid):
+		httpx.WriteValidationError(w, map[string]string{"assessment": CodeAssessmentInvalid})
 	default:
 		httpx.WriteInternalError(w, h.log, err)
 	}

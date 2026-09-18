@@ -55,6 +55,9 @@ func NewService(inspections inspection.Repository, hives HiveVerifier, media Med
 // anything is persisted; if verification fails, Create returns the error
 // immediately, having created nothing.
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, accessToken string, in CreateInput) (*inspection.Inspection, error) {
+	if err := in.Assessment.ValidateFor(in.Type); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAssessmentInvalid, err)
+	}
 	writable, err := s.hives.Verify(ctx, accessToken, in.HiveID)
 	if err != nil {
 		return nil, err
@@ -75,6 +78,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, accessToken stri
 
 	i := inspection.New(userID, in.HiveID, in.InspectedAt, in.Notes, in.Type)
 	i.Images = dedup
+	i.Assessment = in.Assessment
 	if err := s.inspections.Create(ctx, i); err != nil {
 		return nil, fmt.Errorf("inspection: create: %w", err)
 	}
@@ -173,10 +177,17 @@ func (s *Service) Update(ctx context.Context, userID uuid.UUID, accessToken stri
 		}
 		i.Images = dedup
 	}
+	if in.Assessment != nil {
+		if err := in.Assessment.ValidateFor(i.Type); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrAssessmentInvalid, err)
+		}
+		i.Assessment = in.Assessment
+	}
 
 	i.InspectedAt = in.InspectedAt
 	i.Notes = in.Notes
-	i.Type = in.Type
+	// Type is immutable. The field remains accepted because the released
+	// client resends it on PUT; changed values are ignored for compatibility.
 	i.UpdatedAt = time.Now().UTC()
 
 	if err := s.inspections.Update(ctx, i); err != nil {

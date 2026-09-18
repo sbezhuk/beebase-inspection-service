@@ -21,6 +21,7 @@ type Inspection struct {
 	InspectedAt time.Time // when the inspection took place, not a bookkeeping timestamp
 	Notes       string
 	Type        Type
+	Assessment  *Assessment
 	// Images is the set of media ids attached to this inspection - the
 	// source of truth for what's attached (nothing asks media-service on
 	// every read). Never nil; empty when there are no photos.

@@ -24,15 +24,25 @@ type ImageResponse struct {
 // truth the type_invalid validation check reads from - so a client never
 // has to maintain its own copy of the type-to-label mapping.
 type Response struct {
-	ID          uuid.UUID       `json:"id"`
-	HiveID      uuid.UUID       `json:"hiveId"`
-	InspectedAt string          `json:"inspectedAt"`
-	Notes       string          `json:"notes"`
-	Type        inspection.Type `json:"type"`
-	TypeLabel   string          `json:"typeLabel"`
-	Images      []ImageResponse `json:"images"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	UpdatedAt   time.Time       `json:"updatedAt"`
+	ID          uuid.UUID           `json:"id"`
+	HiveID      uuid.UUID           `json:"hiveId"`
+	InspectedAt string              `json:"inspectedAt"`
+	Notes       string              `json:"notes"`
+	Type        inspection.Type     `json:"type"`
+	TypeLabel   string              `json:"typeLabel"`
+	Images      []ImageResponse     `json:"images"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	UpdatedAt   time.Time           `json:"updatedAt"`
+	Assessment  *AssessmentResponse `json:"assessment,omitempty"`
+}
+
+type AssessmentResponse struct {
+	Version        int                        `json:"version"`
+	ColonyStrength *inspection.ColonyStrength `json:"colonyStrength,omitempty"`
+	QueenStatus    *inspection.QueenStatus    `json:"queenStatus,omitempty"`
+	BroodStatus    *inspection.BroodStatus    `json:"broodStatus,omitempty"`
+	FoodStores     *inspection.FoodStores     `json:"foodStores,omitempty"`
+	HealthConcerns *inspection.HealthConcerns `json:"healthConcerns,omitempty"`
 }
 
 // newResponse builds a Response for i. Images is read straight from i -
@@ -44,6 +54,10 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 	for idx, id := range i.Images {
 		images[idx] = ImageResponse{ID: id, ImageURL: medialink.DownloadURL(publicBaseURL, id)}
 	}
+	var assessment *AssessmentResponse
+	if i.Assessment != nil {
+		assessment = &AssessmentResponse{Version: i.Assessment.Version, ColonyStrength: i.Assessment.ColonyStrength, QueenStatus: i.Assessment.QueenStatus, BroodStatus: i.Assessment.BroodStatus, FoodStores: i.Assessment.FoodStores, HealthConcerns: i.Assessment.HealthConcerns}
+	}
 	return Response{
 		ID:          i.ID,
 		HiveID:      i.HiveID,
@@ -54,6 +68,7 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 		Images:      images,
 		CreatedAt:   i.CreatedAt,
 		UpdatedAt:   i.UpdatedAt,
+		Assessment:  assessment,
 	}
 }
 

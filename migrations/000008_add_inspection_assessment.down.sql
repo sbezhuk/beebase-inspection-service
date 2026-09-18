@@ -1,0 +1,9 @@
+ALTER TABLE inspections
+    DROP CONSTRAINT inspections_assessment_values_check,
+    DROP CONSTRAINT inspections_assessment_version_check,
+    DROP COLUMN assessment_version,
+    DROP COLUMN colony_strength,
+    DROP COLUMN queen_status,
+    DROP COLUMN brood_status,
+    DROP COLUMN food_stores,
+    DROP COLUMN health_concerns;

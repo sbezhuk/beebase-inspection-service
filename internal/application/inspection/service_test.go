@@ -108,6 +108,20 @@ func (f *fakeRepo) ListByHive(_ context.Context, userID, hiveID uuid.UUID, p pag
 	return all[start:end], total, nil
 }
 
+func (f *fakeRepo) ListAllByHive(_ context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var all []*inspection.Inspection
+	for _, i := range f.byID {
+		if i.UserID == userID && i.HiveID == hiveID && i.DeletedAt == nil {
+			cp := *i
+			all = append(all, &cp)
+		}
+	}
+	sortInspections(all, nil)
+	return all, nil
+}
+
 func (f *fakeRepo) ListByUser(_ context.Context, userID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

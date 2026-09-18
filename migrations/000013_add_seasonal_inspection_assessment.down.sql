@@ -1,0 +1,9 @@
+ALTER TABLE inspections
+    DROP CONSTRAINT inspections_seasonal_values_check,
+    DROP CONSTRAINT inspections_seasonal_store_readiness_check,
+    DROP CONSTRAINT inspections_seasonal_readiness_check,
+    DROP CONSTRAINT inspections_seasonal_concerns_check,
+    DROP COLUMN seasonal_concerns,
+    DROP COLUMN seasonal_readiness,
+    DROP COLUMN seasonal_store_readiness,
+    DROP COLUMN season;

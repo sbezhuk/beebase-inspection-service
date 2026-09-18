@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
 // HiveVerifier confirms that a hive belongs to whoever presented
@@ -22,6 +24,14 @@ type HiveVerifier interface {
 	// hive entitlement). Returns ErrHiveNotFound if it doesn't belong to
 	// them (or doesn't exist).
 	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) (writable bool, err error)
+}
+
+// HealthInspectionReader supplies the complete non-deleted inspection
+// history for a hive. It is separate from the paginated UI-list contract so
+// a derived health result cannot accidentally depend on page size or page
+// number.
+type HealthInspectionReader interface {
+	ListAllByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error)
 }
 
 // MediaClient is inspection-service's dependency on media-service.

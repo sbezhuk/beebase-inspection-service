@@ -199,6 +199,29 @@ func (h *Handler) ListByHive(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(inspections, h.publicBaseURL), p, total))
 }
 
+// HiveHealth handles GET /api/v1/hives/{hiveID}/health. The snapshot is
+// derived from the complete inspection history and is not persisted.
+func (h *Handler) HiveHealth(w http.ResponseWriter, r *http.Request) {
+	userID, token, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveId"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
+		return
+	}
+
+	asOf := time.Now().UTC()
+	evaluation, err := h.service.GetHiveHealth(r.Context(), userID, token, hiveID, asOf)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, newColonyHealthResponse(asOf, evaluation))
+}
+
 func parseSearch(r *http.Request, fields map[string]string) (*string, map[string]string) {
 	s := r.URL.Query().Get("search")
 	if s == "" {

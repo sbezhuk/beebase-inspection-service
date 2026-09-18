@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/pagination"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -119,6 +120,51 @@ func (s *Service) Get(ctx context.Context, userID, inspectionID uuid.UUID) (*ins
 // instead of the repository's default order (InspectedAt).
 func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	return s.inspections.ListByHive(ctx, userID, hiveID, p, search, typ, dateFrom, dateTo, sortOrder)
+}
+
+// GetHiveHealth derives the current Colony Health snapshot from the complete
+// inspection history for hiveID. asOf is supplied by the transport boundary;
+// this method does not read the system clock.
+func (s *Service) GetHiveHealth(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID, asOf time.Time) (health.ColonyHealthEvaluation, error) {
+	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+		return health.ColonyHealthEvaluation{}, err
+	}
+
+	reader, ok := s.inspections.(HealthInspectionReader)
+	if !ok {
+		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: repository does not support health evaluation history")
+	}
+	inspections, err := reader.ListAllByHive(ctx, userID, hiveID)
+	if err != nil {
+		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: list health evaluation history: %w", err)
+	}
+
+	input := health.DimensionEvaluationInput{
+		AsOf:             asOf,
+		RecencyPolicy:    health.DefaultRecencyPolicyV1(),
+		Evidence:         []health.HealthEvidence{},
+		ManagementEvents: []health.ManagementEvent{},
+		ContextFacts:     []health.ContextFact{},
+	}
+	for _, current := range inspections {
+		if current == nil {
+			return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: health evaluation history contains nil inspection")
+		}
+		normalized := health.NormalizeInspection(*current)
+		input.Evidence = append(input.Evidence, normalized.HealthEvidence...)
+		input.ManagementEvents = append(input.ManagementEvents, normalized.ManagementEvents...)
+		input.ContextFacts = append(input.ContextFacts, normalized.ContextFacts...)
+	}
+
+	dimensions, err := health.EvaluateDimensions(input)
+	if err != nil {
+		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: evaluate health dimensions: %w", err)
+	}
+	result, err := health.EvaluateColonyHealth(dimensions)
+	if err != nil {
+		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: evaluate colony health: %w", err)
+	}
+	return result, nil
 }
 
 // List returns the page of inspections described by p across every hive

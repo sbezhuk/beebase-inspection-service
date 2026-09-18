@@ -113,12 +113,31 @@ func (r *UpdateRequest) Validate() map[string]string {
 }
 
 type AssessmentRequest struct {
-	Version        *int    `json:"version"`
-	ColonyStrength *string `json:"colonyStrength"`
-	QueenStatus    *string `json:"queenStatus"`
-	BroodStatus    *string `json:"broodStatus"`
-	FoodStores     *string `json:"foodStores"`
-	HealthConcerns *string `json:"healthConcerns"`
+	Version                *int      `json:"version"`
+	ColonyStrength         *string   `json:"colonyStrength"`
+	QueenStatus            *string   `json:"queenStatus"`
+	BroodStatus            *string   `json:"broodStatus"`
+	FoodStores             *string   `json:"foodStores"`
+	HealthConcerns         *string   `json:"healthConcerns"`
+	QueenObserved          *string   `json:"queenObserved"`
+	EggsObserved           *string   `json:"eggsObserved"`
+	QueenCells             *string   `json:"queenCells"`
+	QueenCondition         *string   `json:"queenCondition"`
+	BroodAmount            *string   `json:"broodAmount"`
+	BroodPattern           *string   `json:"broodPattern"`
+	BroodStages            *[]string `json:"broodStages"`
+	BroodConcerns          *string   `json:"broodConcerns"`
+	HealthOverallCondition *string   `json:"healthOverallCondition"`
+	PestSigns              *[]string `json:"pestSigns"`
+	HealthWarningSigns     *[]string `json:"healthWarningSigns"`
+	HealthConcernLevel     *string   `json:"healthConcernLevel"`
+	FeedingNeed            *string   `json:"feedingNeed"`
+	FeedingPerformed       *string   `json:"feedingPerformed"`
+	FeedTypes              *[]string `json:"feedTypes"`
+	Season                 *string   `json:"season"`
+	SeasonalStoreReadiness *string   `json:"seasonalStoreReadiness"`
+	SeasonalReadiness      *string   `json:"seasonalReadiness"`
+	SeasonalConcerns       *[]string `json:"seasonalConcerns"`
 }
 
 func (r *AssessmentRequest) domain() *inspection.Assessment {
@@ -148,6 +167,97 @@ func (r *AssessmentRequest) domain() *inspection.Assessment {
 	if r.HealthConcerns != nil {
 		v := inspection.HealthConcerns(*r.HealthConcerns)
 		a.HealthConcerns = &v
+	}
+	if r.QueenObserved != nil {
+		v := inspection.QueenObserved(*r.QueenObserved)
+		a.QueenObserved = &v
+	}
+	if r.EggsObserved != nil {
+		v := inspection.EggsObserved(*r.EggsObserved)
+		a.EggsObserved = &v
+	}
+	if r.QueenCells != nil {
+		v := inspection.QueenCells(*r.QueenCells)
+		a.QueenCells = &v
+	}
+	if r.QueenCondition != nil {
+		v := inspection.QueenCondition(*r.QueenCondition)
+		a.QueenCondition = &v
+	}
+	if r.BroodAmount != nil {
+		v := inspection.BroodAmount(*r.BroodAmount)
+		a.BroodAmount = &v
+	}
+	if r.BroodPattern != nil {
+		v := inspection.BroodPattern(*r.BroodPattern)
+		a.BroodPattern = &v
+	}
+	if r.BroodStages != nil {
+		values := make([]inspection.BroodStage, len(*r.BroodStages))
+		for index, stage := range *r.BroodStages {
+			values[index] = inspection.BroodStage(stage)
+		}
+		a.BroodStages = &values
+	}
+	if r.BroodConcerns != nil {
+		v := inspection.BroodConcerns(*r.BroodConcerns)
+		a.BroodConcerns = &v
+	}
+	if r.HealthOverallCondition != nil {
+		v := inspection.HealthOverallCondition(*r.HealthOverallCondition)
+		a.HealthOverallCondition = &v
+	}
+	if r.PestSigns != nil {
+		values := make([]inspection.PestSign, len(*r.PestSigns))
+		for index, sign := range *r.PestSigns {
+			values[index] = inspection.PestSign(sign)
+		}
+		a.PestSigns = &values
+	}
+	if r.HealthWarningSigns != nil {
+		values := make([]inspection.HealthWarningSign, len(*r.HealthWarningSigns))
+		for index, sign := range *r.HealthWarningSigns {
+			values[index] = inspection.HealthWarningSign(sign)
+		}
+		a.HealthWarningSigns = &values
+	}
+	if r.HealthConcernLevel != nil {
+		v := inspection.HealthConcernLevel(*r.HealthConcernLevel)
+		a.HealthConcernLevel = &v
+	}
+	if r.FeedingNeed != nil {
+		v := inspection.FeedingNeed(*r.FeedingNeed)
+		a.FeedingNeed = &v
+	}
+	if r.FeedingPerformed != nil {
+		v := inspection.FeedingPerformed(*r.FeedingPerformed)
+		a.FeedingPerformed = &v
+	}
+	if r.FeedTypes != nil {
+		values := make([]inspection.FeedType, len(*r.FeedTypes))
+		for index, feedType := range *r.FeedTypes {
+			values[index] = inspection.FeedType(feedType)
+		}
+		a.FeedTypes = &values
+	}
+	if r.Season != nil {
+		v := inspection.SeasonalPhase(*r.Season)
+		a.Season = &v
+	}
+	if r.SeasonalStoreReadiness != nil {
+		v := inspection.SeasonalStoreReadiness(*r.SeasonalStoreReadiness)
+		a.SeasonalStoreReadiness = &v
+	}
+	if r.SeasonalReadiness != nil {
+		v := inspection.SeasonalReadiness(*r.SeasonalReadiness)
+		a.SeasonalReadiness = &v
+	}
+	if r.SeasonalConcerns != nil {
+		values := make([]inspection.SeasonalConcern, len(*r.SeasonalConcerns))
+		for index, concern := range *r.SeasonalConcerns {
+			values[index] = inspection.SeasonalConcern(concern)
+		}
+		a.SeasonalConcerns = &values
 	}
 	return a
 }

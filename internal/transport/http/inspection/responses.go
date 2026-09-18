@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/medialink"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -37,12 +38,64 @@ type Response struct {
 }
 
 type AssessmentResponse struct {
-	Version        int                        `json:"version"`
-	ColonyStrength *inspection.ColonyStrength `json:"colonyStrength,omitempty"`
-	QueenStatus    *inspection.QueenStatus    `json:"queenStatus,omitempty"`
-	BroodStatus    *inspection.BroodStatus    `json:"broodStatus,omitempty"`
-	FoodStores     *inspection.FoodStores     `json:"foodStores,omitempty"`
-	HealthConcerns *inspection.HealthConcerns `json:"healthConcerns,omitempty"`
+	Version                int                                `json:"version"`
+	ColonyStrength         *inspection.ColonyStrength         `json:"colonyStrength,omitempty"`
+	QueenStatus            *inspection.QueenStatus            `json:"queenStatus,omitempty"`
+	BroodStatus            *inspection.BroodStatus            `json:"broodStatus,omitempty"`
+	FoodStores             *inspection.FoodStores             `json:"foodStores,omitempty"`
+	HealthConcerns         *inspection.HealthConcerns         `json:"healthConcerns,omitempty"`
+	QueenObserved          *inspection.QueenObserved          `json:"queenObserved,omitempty"`
+	EggsObserved           *inspection.EggsObserved           `json:"eggsObserved,omitempty"`
+	QueenCells             *inspection.QueenCells             `json:"queenCells,omitempty"`
+	QueenCondition         *inspection.QueenCondition         `json:"queenCondition,omitempty"`
+	BroodAmount            *inspection.BroodAmount            `json:"broodAmount,omitempty"`
+	BroodPattern           *inspection.BroodPattern           `json:"broodPattern,omitempty"`
+	BroodStages            *[]inspection.BroodStage           `json:"broodStages,omitempty"`
+	BroodConcerns          *inspection.BroodConcerns          `json:"broodConcerns,omitempty"`
+	HealthOverallCondition *inspection.HealthOverallCondition `json:"healthOverallCondition,omitempty"`
+	PestSigns              *[]inspection.PestSign             `json:"pestSigns,omitempty"`
+	HealthWarningSigns     *[]inspection.HealthWarningSign    `json:"healthWarningSigns,omitempty"`
+	HealthConcernLevel     *inspection.HealthConcernLevel     `json:"healthConcernLevel,omitempty"`
+	FeedingNeed            *inspection.FeedingNeed            `json:"feedingNeed,omitempty"`
+	FeedingPerformed       *inspection.FeedingPerformed       `json:"feedingPerformed,omitempty"`
+	FeedTypes              *[]inspection.FeedType             `json:"feedTypes,omitempty"`
+	Season                 *inspection.SeasonalPhase          `json:"season,omitempty"`
+	SeasonalStoreReadiness *inspection.SeasonalStoreReadiness `json:"seasonalStoreReadiness,omitempty"`
+	SeasonalReadiness      *inspection.SeasonalReadiness      `json:"seasonalReadiness,omitempty"`
+	SeasonalConcerns       *[]inspection.SeasonalConcern      `json:"seasonalConcerns,omitempty"`
+}
+
+type ColonyHealthDimensionResponse struct {
+	Dimension health.HealthDimension  `json:"dimension"`
+	State     health.DimensionState   `json:"state"`
+	Coverage  health.EvidenceCoverage `json:"coverage"`
+}
+
+// ColonyHealthResponse is a derived snapshot. The top-level state is the
+// calculated Colony Health result; the OVERALL dimension remains the
+// beekeeper's separate broad assessment.
+type ColonyHealthResponse struct {
+	AsOf       time.Time                       `json:"asOf"`
+	State      health.DimensionState           `json:"state"`
+	Coverage   health.EvidenceCoverage         `json:"coverage"`
+	Dimensions []ColonyHealthDimensionResponse `json:"dimensions"`
+}
+
+func newColonyHealthResponse(asOf time.Time, evaluation health.ColonyHealthEvaluation) ColonyHealthResponse {
+	dimensions := make([]ColonyHealthDimensionResponse, len(evaluation.Dimensions))
+	for index, dimension := range evaluation.Dimensions {
+		dimensions[index] = ColonyHealthDimensionResponse{
+			Dimension: dimension.Dimension,
+			State:     dimension.State,
+			Coverage:  dimension.Coverage,
+		}
+	}
+	return ColonyHealthResponse{
+		AsOf:       asOf,
+		State:      evaluation.State,
+		Coverage:   evaluation.Coverage,
+		Dimensions: dimensions,
+	}
 }
 
 // newResponse builds a Response for i. Images is read straight from i -
@@ -56,7 +109,7 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 	}
 	var assessment *AssessmentResponse
 	if i.Assessment != nil {
-		assessment = &AssessmentResponse{Version: i.Assessment.Version, ColonyStrength: i.Assessment.ColonyStrength, QueenStatus: i.Assessment.QueenStatus, BroodStatus: i.Assessment.BroodStatus, FoodStores: i.Assessment.FoodStores, HealthConcerns: i.Assessment.HealthConcerns}
+		assessment = &AssessmentResponse{Version: i.Assessment.Version, ColonyStrength: i.Assessment.ColonyStrength, QueenStatus: i.Assessment.QueenStatus, BroodStatus: i.Assessment.BroodStatus, FoodStores: i.Assessment.FoodStores, HealthConcerns: i.Assessment.HealthConcerns, QueenObserved: i.Assessment.QueenObserved, EggsObserved: i.Assessment.EggsObserved, QueenCells: i.Assessment.QueenCells, QueenCondition: i.Assessment.QueenCondition, BroodAmount: i.Assessment.BroodAmount, BroodPattern: i.Assessment.BroodPattern, BroodStages: i.Assessment.BroodStages, BroodConcerns: i.Assessment.BroodConcerns, HealthOverallCondition: i.Assessment.HealthOverallCondition, PestSigns: i.Assessment.PestSigns, HealthWarningSigns: i.Assessment.HealthWarningSigns, HealthConcernLevel: i.Assessment.HealthConcernLevel, FeedingNeed: i.Assessment.FeedingNeed, FeedingPerformed: i.Assessment.FeedingPerformed, FeedTypes: i.Assessment.FeedTypes, Season: i.Assessment.Season, SeasonalStoreReadiness: i.Assessment.SeasonalStoreReadiness, SeasonalReadiness: i.Assessment.SeasonalReadiness, SeasonalConcerns: i.Assessment.SeasonalConcerns}
 	}
 	return Response{
 		ID:          i.ID,

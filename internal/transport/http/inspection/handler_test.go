@@ -8,10 +8,38 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
+
+func TestNewColonyHealthResponseUsesCalculatedStateAndCanonicalDimensions(t *testing.T) {
+	asOf := time.Date(2026, 9, 18, 18, 30, 0, 0, time.UTC)
+	evaluation := health.ColonyHealthEvaluation{
+		State:    health.DimensionWatch,
+		Coverage: health.CoverageHigh,
+		Dimensions: []health.DimensionEvaluation{
+			{Dimension: health.DimensionStrength, State: health.DimensionGood, Coverage: health.CoverageMedium},
+			{Dimension: health.DimensionQueen, State: health.DimensionGood, Coverage: health.CoverageHigh},
+			{Dimension: health.DimensionBrood, State: health.DimensionWatch, Coverage: health.CoverageMedium},
+			{Dimension: health.DimensionNutrition, State: health.DimensionGood, Coverage: health.CoverageHigh},
+			{Dimension: health.DimensionPestsAndDisease, State: health.DimensionGood, Coverage: health.CoverageLow},
+			{Dimension: health.DimensionOverall, State: health.DimensionConcern, Coverage: health.CoverageMedium},
+		},
+	}
+	response := newColonyHealthResponse(asOf, evaluation)
+	if response.AsOf != asOf || response.State != health.DimensionWatch || response.Coverage != health.CoverageHigh {
+		t.Fatalf("response header = %#v", response)
+	}
+	if len(response.Dimensions) != 6 || response.Dimensions[5].Dimension != health.DimensionOverall {
+		t.Fatalf("dimensions = %#v", response.Dimensions)
+	}
+	if response.Dimensions[5].State != health.DimensionConcern {
+		t.Fatalf("beekeeper OVERALL was changed: %#v", response.Dimensions[5])
+	}
+}
 
 func TestWriteServiceError(t *testing.T) {
 	h := NewHandler(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), "")

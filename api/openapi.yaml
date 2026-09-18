@@ -423,6 +423,44 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
+  /api/v1/hives/{hiveId}/health:
+    parameters:
+      - name: hiveId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [inspections]
+      summary: Get the calculated Colony Health snapshot for one hive
+      description: >
+        Returns a derived, non-persisted Colony Health snapshot calculated
+        from the caller's complete structured inspection history for this
+        hive. The top-level state is the calculated aggregate; the OVERALL
+        dimension remains the beekeeper's separate broad assessment and is
+        not included in the aggregate calculation. A hive with no usable
+        structured evidence returns UNKNOWN with NONE coverage.
+      responses:
+        "200":
+          description: The calculated Colony Health snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ColonyHealthResponse" }
+        "400":
+          description: hiveId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: The hive does not exist or is not accessible to the caller.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -455,6 +493,81 @@ components:
         foodStores: { type: string, enum: [LOW, ADEQUATE, ABUNDANT, NOT_CHECKED] }
         healthConcerns: { type: string, enum: [NONE, PRESENT, NOT_CHECKED] }
 
+    QueenAssessment:
+      type: object
+      description: Optional versioned structured observations for QUEEN inspections. Omitted fields mean no observation.
+      properties:
+        version: { type: integer, enum: [1], default: 1 }
+        queenObserved: { type: string, enum: [OBSERVED, NOT_OBSERVED, UNSURE] }
+        eggsObserved: { type: string, enum: [YES, NO, UNSURE] }
+        queenCells: { type: string, enum: [NONE, PRESENT, UNSURE] }
+        queenCondition: { type: string, enum: [NORMAL, CONCERN] }
+
+    BroodAssessment:
+      type: object
+      description: Optional versioned structured observations for BROOD inspections. Omitted fields mean not assessed; an empty broodStages array means assessed and no stages were observed.
+      properties:
+        version: { type: integer, enum: [1], default: 1 }
+        broodAmount: { type: string, enum: [LOW, MODERATE, HIGH] }
+        broodPattern: { type: string, enum: [SOLID, MIXED, SPOTTY] }
+        broodStages:
+          type: array
+          items: { type: string, enum: [EGGS, LARVAE, CAPPED] }
+          uniqueItems: true
+        broodConcerns: { type: string, enum: [NONE, OBSERVED, UNSURE] }
+
+    HealthAssessment:
+      type: object
+      description: Optional versioned health observations for HEALTH inspections. These values record observations and beekeeper concern, not diagnoses. Omitted fields mean not assessed; an empty array means assessed and no signs were observed.
+      properties:
+        version: { type: integer, enum: [1], default: 1 }
+        healthOverallCondition: { type: string, enum: [GOOD, FAIR, POOR] }
+        pestSigns:
+          type: array
+          items: { type: string, enum: [VARROA_MITES, WAX_MOTH, SMALL_HIVE_BEETLE, OTHER] }
+          uniqueItems: true
+        healthWarningSigns:
+          type: array
+          items: { type: string, enum: [ABNORMAL_BROOD, DEFORMED_WINGS, UNUSUAL_BEE_MORTALITY, DIARRHEA_SIGNS, OTHER] }
+          uniqueItems: true
+        healthConcernLevel: { type: string, enum: [NONE, LOW, MODERATE, HIGH] }
+
+    FeedingAssessment:
+      type: object
+      description: Optional versioned observations and actions for FEEDING inspections. Food stores describe colony state; feedingPerformed describes beekeeper action.
+      properties:
+        version: { type: integer, enum: [1], default: 1 }
+        foodStores: { type: string, enum: [LOW, ADEQUATE, ABUNDANT, NOT_CHECKED] }
+        feedingNeed: { type: string, enum: [NO, SOON, YES, UNSURE] }
+        feedingPerformed: { type: string, enum: [YES, NO] }
+        feedTypes:
+          type: array
+          items: { type: string, enum: [SUGAR_SYRUP, FONDANT, DRY_SUGAR, POLLEN_SUBSTITUTE, OTHER] }
+          uniqueItems: true
+
+    SeasonalAssessment:
+      type: object
+      description: Optional versioned seasonal context, observations, and beekeeper readiness assessment. Season is explicitly selected and is not inferred from date or location; seasonalConcerns omits assessment when null and records no concerns when empty.
+      properties:
+        version: { type: integer, enum: [1], default: 1 }
+        season: { type: string, enum: [SPRING, SUMMER, AUTUMN, WINTER] }
+        colonyStrength: { type: string, enum: [WEAK, MODERATE, STRONG] }
+        seasonalStoreReadiness: { type: string, enum: [SUFFICIENT, MARGINAL, INSUFFICIENT] }
+        seasonalReadiness: { type: string, enum: [READY, NEEDS_ATTENTION, NOT_READY, UNSURE] }
+        seasonalConcerns:
+          type: array
+          items: { type: string, enum: [FOOD_STORES, COLONY_STRENGTH, QUEEN, BROOD, PESTS_OR_DISEASE, HIVE_CONDITION, OTHER] }
+          uniqueItems: true
+
+    InspectionAssessment:
+      oneOf:
+        - $ref: "#/components/schemas/RoutineAssessment"
+        - $ref: "#/components/schemas/QueenAssessment"
+        - $ref: "#/components/schemas/BroodAssessment"
+        - $ref: "#/components/schemas/HealthAssessment"
+        - $ref: "#/components/schemas/FeedingAssessment"
+        - $ref: "#/components/schemas/SeasonalAssessment"
+
     CreateInspectionRequest:
       type: object
       required: [hiveId, inspectedAt, notes, type]
@@ -472,7 +585,7 @@ components:
             reference immediately. Each must belong to the caller; omit
             this field (or send an empty array) to create an inspection
             with no photos. Maximum 5 photos allowed.
-        assessment: { $ref: "#/components/schemas/RoutineAssessment" }
+        assessment: { $ref: "#/components/schemas/InspectionAssessment" }
 
     UpdateInspectionRequest:
       type: object
@@ -493,7 +606,7 @@ components:
             Each id must belong to the caller. Maximum 5 photos allowed.
             Dropping an id only removes the reference - it does not delete
             the underlying file.
-        assessment: { $ref: "#/components/schemas/RoutineAssessment" }
+        assessment: { $ref: "#/components/schemas/InspectionAssessment" }
 
     InspectionImage:
       type: object
@@ -529,7 +642,39 @@ components:
           description: The media currently attached to this inspection, in reference order.
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-        assessment: { $ref: "#/components/schemas/RoutineAssessment" }
+        assessment: { $ref: "#/components/schemas/InspectionAssessment" }
+
+    ColonyHealthResponse:
+      type: object
+      description: Derived Colony Health; this result is not persisted.
+      required: [asOf, state, coverage, dimensions]
+      properties:
+        asOf: { type: string, format: date-time }
+        state: { $ref: "#/components/schemas/DimensionState" }
+        coverage: { $ref: "#/components/schemas/EvidenceCoverage" }
+        dimensions:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items: { $ref: "#/components/schemas/ColonyHealthDimension" }
+
+    ColonyHealthDimension:
+      type: object
+      required: [dimension, state, coverage]
+      properties:
+        dimension:
+          type: string
+          enum: [STRENGTH, QUEEN, BROOD, NUTRITION, PESTS_AND_DISEASE, OVERALL]
+        state: { $ref: "#/components/schemas/DimensionState" }
+        coverage: { $ref: "#/components/schemas/EvidenceCoverage" }
+
+    DimensionState:
+      type: string
+      enum: [UNKNOWN, GOOD, WATCH, CONCERN]
+
+    EvidenceCoverage:
+      type: string
+      enum: [NONE, LOW, MEDIUM, HIGH]
 
     Pagination:
       type: object

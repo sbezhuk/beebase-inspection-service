@@ -170,13 +170,23 @@ arbitrary out-of-band synchronization.
 
 ## Structured inspection assessments
 
-Routine assessments are optional and stored as nullable, typed columns on the
-inspection row, together with an assessment version. This keeps the existing
-inspection write atomic, makes the initial metrics queryable for later
-analytics, and avoids the validation and interpretation costs of an opaque
-JSON document. A missing metric is not checked; explicit `NOT_CHECKED` values
-are preserved where the metric supports them. Version 1 is the only accepted
-definition today, and old rows retain their stored version.
+Routine, QUEEN, BROOD, HEALTH, and FEEDING assessments are optional and stored as
+nullable, typed columns on the inspection row, together with an assessment
+version. BROOD stages and HEALTH sign lists use nullable PostgreSQL `TEXT[]`
+columns: `NULL` means not assessed, while an empty array means assessed and no
+values were observed. HEALTH values record beekeeper observations and concern;
+they are not diagnoses or automatically calculated severity scores. FEEDING
+keeps food stores (colony state) separate from feeding performed (beekeeper
+action). SEASONAL explicitly records the beekeeper-selected phase, reuses
+colony strength, and uses phase-specific store readiness rather than
+reinterpreting absolute `FoodStores` values. Seasonal concerns preserve the
+same nullable-versus-empty array semantics. This keeps
+the existing inspection write atomic, makes the initial metrics queryable for
+later analytics, and avoids the validation and interpretation costs of an
+opaque JSON document. A missing metric is no observation; explicit enum values
+such as `NOT_CHECKED` or `NOT_OBSERVED` are preserved. Version 1 is the only
+accepted definition for each supported inspection type, and old rows retain
+their stored version.
 
 `InspectionType` is immutable after creation. PUT continues to accept the
 legacy `type` field so the released client remains compatible; a changed type

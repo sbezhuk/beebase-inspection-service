@@ -1,6 +1,7 @@
 package inspection
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -83,6 +84,151 @@ func TestCreateRequest_Validate(t *testing.T) {
 				if gotCode, ok := got[field]; !ok || gotCode != wantCode {
 					t.Errorf("field %q: got code %q, want %q", field, gotCode, wantCode)
 				}
+			}
+		})
+	}
+}
+
+func TestCreateRequest_Validate_RejectsForeignAssessmentFields(t *testing.T) {
+	stringPtr := func(value string) *string { return &value }
+	validHiveID := uuid.New().String()
+	cases := []struct {
+		name       string
+		typ        string
+		assessment AssessmentRequest
+	}{
+		{
+			name: "ROUTINE with HEALTH field",
+			typ:  "ROUTINE",
+			assessment: AssessmentRequest{
+				ColonyStrength:     stringPtr("STRONG"),
+				HealthConcernLevel: stringPtr("HIGH"),
+			},
+		},
+		{
+			name: "QUEEN with FEEDING field",
+			typ:  "QUEEN",
+			assessment: AssessmentRequest{
+				QueenObserved:    stringPtr("OBSERVED"),
+				FeedingPerformed: stringPtr("YES"),
+			},
+		},
+		{
+			name: "BROOD with SEASONAL field",
+			typ:  "BROOD",
+			assessment: AssessmentRequest{
+				BroodPattern: stringPtr("SOLID"),
+				Season:       stringPtr("WINTER"),
+			},
+		},
+		{
+			name: "HEALTH with QUEEN field",
+			typ:  "HEALTH",
+			assessment: AssessmentRequest{
+				HealthOverallCondition: stringPtr("GOOD"),
+				QueenObserved:          stringPtr("OBSERVED"),
+			},
+		},
+		{
+			name: "FEEDING with BROOD field",
+			typ:  "FEEDING",
+			assessment: AssessmentRequest{
+				FeedingPerformed: stringPtr("NO"),
+				BroodPattern:     stringPtr("SOLID"),
+			},
+		},
+		{
+			name: "SEASONAL with HEALTH field",
+			typ:  "SEASONAL",
+			assessment: AssessmentRequest{
+				Season:                 stringPtr("SPRING"),
+				SeasonalReadiness:      stringPtr("READY"),
+				HealthOverallCondition: stringPtr("GOOD"),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := CreateRequest{
+				HiveID:      validHiveID,
+				InspectedAt: validInspectedAt,
+				Notes:       "assessment",
+				Type:        tc.typ,
+				Assessment:  &tc.assessment,
+			}
+			fields := req.Validate()
+			if fields["assessment"] != CodeAssessmentInvalid {
+				t.Fatalf("assessment validation = %q, want %q; fields=%v", fields["assessment"], CodeAssessmentInvalid, fields)
+			}
+		})
+	}
+}
+
+func TestCreateRequest_JSONForeignFieldIsNotSilentlyDiscarded(t *testing.T) {
+	var req CreateRequest
+	if err := json.Unmarshal([]byte(`{
+		"hiveId":"00000000-0000-0000-0000-000000000001",
+		"inspectedAt":"2026-03-15",
+		"notes":"assessment",
+		"type":"ROUTINE",
+		"assessment":{"version":1,"colonyStrength":"STRONG","healthConcernLevel":"HIGH"}
+	}`), &req); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if req.Assessment == nil || req.Assessment.HealthConcernLevel == nil {
+		t.Fatal("foreign assessment field was discarded during decoding")
+	}
+	if fields := req.Validate(); fields["assessment"] != CodeAssessmentInvalid {
+		t.Fatalf("assessment validation = %q, want %q; fields=%v", fields["assessment"], CodeAssessmentInvalid, fields)
+	}
+}
+
+func TestCreateRequest_Validate_RejectsFlutterPayloadAfterTypeChange(t *testing.T) {
+	var req CreateRequest
+	err := json.Unmarshal([]byte(`{
+		"hiveId":"00000000-0000-0000-0000-000000000001",
+		"inspectedAt":"2026-09-18",
+		"notes":"Changed type",
+		"type":"QUEEN",
+		"assessment":{
+			"version":1,
+			"colonyStrength":"STRONG",
+			"queenStatus":"HEALTHY",
+			"broodStatus":"HEALTHY",
+			"foodStores":"ADEQUATE",
+			"healthConcerns":"NONE"
+		}
+	}`), &req)
+	if err != nil {
+		t.Fatalf("decode Flutter payload: %v", err)
+	}
+
+	fields := req.Validate()
+	if fields["assessment"] != CodeAssessmentInvalid {
+		t.Fatalf("assessment validation = %q, want %q; fields=%v", fields["assessment"], CodeAssessmentInvalid, fields)
+	}
+}
+
+func TestCreateRequest_Validate_AcceptsFullyCompletedFlutterAssessments(t *testing.T) {
+	cases := map[string]string{
+		"ROUTINE": `{"colonyStrength":"STRONG","queenStatus":"HEALTHY","broodStatus":"HEALTHY","foodStores":"ADEQUATE","healthConcerns":"NONE"}`,
+		"QUEEN": `{"queenObserved":"OBSERVED","eggsObserved":"YES","queenCells":"NONE","queenCondition":"NORMAL"}`,
+		"BROOD": `{"broodAmount":"MODERATE","broodPattern":"SOLID","broodStages":["EGGS","LARVAE","CAPPED"],"broodConcerns":"NONE"}`,
+		"HEALTH": `{"healthOverallCondition":"GOOD","pestSigns":["VARROA_MITES"],"healthWarningSigns":["ABNORMAL_BROOD"],"healthConcernLevel":"LOW"}`,
+		"FEEDING": `{"foodStores":"LOW","feedingNeed":"YES","feedingPerformed":"YES","feedTypes":["SUGAR_SYRUP","POLLEN_SUBSTITUTE"]}`,
+		"SEASONAL": `{"season":"AUTUMN","colonyStrength":"STRONG","seasonalStoreReadiness":"SUFFICIENT","seasonalReadiness":"READY","seasonalConcerns":["FOOD_STORES"]}`,
+	}
+
+	for typ, assessment := range cases {
+		t.Run(typ, func(t *testing.T) {
+			body := []byte(`{"hiveId":"00000000-0000-0000-0000-000000000001","inspectedAt":"2026-09-18","notes":"Complete assessment","type":"` + typ + `","assessment":` + assessment + `}`)
+			var req CreateRequest
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Fatalf("decode Flutter payload: %v", err)
+			}
+			if fields := req.Validate(); len(fields) != 0 {
+				t.Fatalf("Validate() = %v, want no errors", fields)
 			}
 		})
 	}

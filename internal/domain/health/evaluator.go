@@ -260,7 +260,9 @@ func coverageFor(groups []factGroup) EvidenceCoverage {
 	if meaningfulCurrent == 1 || hasMeaningfulRecent {
 		return CoverageMedium
 	}
-	return CoverageLow
+	// Every meaningful fact found above is STALE: it can explain history but
+	// cannot describe the current state, so it contributes no coverage.
+	return CoverageNone
 }
 
 func interpretEvidence(evidence HealthEvidence) (evidenceSignal, bool, error) {

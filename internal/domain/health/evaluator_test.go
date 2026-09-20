@@ -157,7 +157,7 @@ func TestEvaluateDimensionsCoverageUsesDistinctFactsAndRecency(t *testing.T) {
 			evidenceValue(DimensionQueen, SourceFieldQueenCells, "NONE", current),
 		}, CoverageHigh},
 		{"recent only", []HealthEvidence{evidenceValue(DimensionQueen, SourceFieldQueenStatus, "HEALTHY", recent)}, CoverageMedium},
-		{"stale only", []HealthEvidence{evidenceValue(DimensionQueen, SourceFieldQueenStatus, "HEALTHY", stale)}, CoverageLow},
+		{"stale only", []HealthEvidence{evidenceValue(DimensionQueen, SourceFieldQueenStatus, "HEALTHY", stale)}, CoverageNone},
 		{"repeated same fact", []HealthEvidence{
 			evidenceValue(DimensionQueen, SourceFieldQueenStatus, "HEALTHY", current),
 			evidenceValue(DimensionQueen, SourceFieldQueenStatus, "HEALTHY", current.Add(-time.Minute)),
@@ -172,6 +172,66 @@ func TestEvaluateDimensionsCoverageUsesDistinctFactsAndRecency(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEvaluateDimensionsStaleOnlyCoverageIsNone proves that once all
+// meaningful evidence for a dimension has aged past STALE, coverage drops to
+// NONE rather than LOW: stale evidence explains history, not current state,
+// so it must not report as "some usable evidence" either.
+func TestEvaluateDimensionsStaleOnlyCoverageIsNone(t *testing.T) {
+	asOf := evaluationTime()
+
+	t.Run("very old stale evidence (2 years)", func(t *testing.T) {
+		got := evaluateAt(t, asOf, evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.AddDate(-2, 0, 0)))
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.State != DimensionUnknown || nutrition.Coverage != CoverageNone {
+			t.Fatalf("nutrition = (%q, %q), want (UNKNOWN, NONE)", nutrition.State, nutrition.Coverage)
+		}
+	})
+
+	t.Run("31 days is stale", func(t *testing.T) {
+		got := evaluateAt(t, asOf, evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-31*24*time.Hour)))
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.State != DimensionUnknown || nutrition.Coverage != CoverageNone {
+			t.Fatalf("nutrition = (%q, %q), want (UNKNOWN, NONE)", nutrition.State, nutrition.Coverage)
+		}
+	})
+
+	t.Run("exactly 30 days is still recent, not stale", func(t *testing.T) {
+		got := evaluateAt(t, asOf, evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-30*24*time.Hour)))
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.State != DimensionGood || nutrition.Coverage != CoverageMedium {
+			t.Fatalf("nutrition = (%q, %q), want (GOOD, MEDIUM)", nutrition.State, nutrition.Coverage)
+		}
+	})
+
+	t.Run("30 days plus one second crosses into stale", func(t *testing.T) {
+		got := evaluateAt(t, asOf, evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-30*24*time.Hour-time.Second)))
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.State != DimensionUnknown || nutrition.Coverage != CoverageNone {
+			t.Fatalf("nutrition = (%q, %q), want (UNKNOWN, NONE)", nutrition.State, nutrition.Coverage)
+		}
+	})
+
+	t.Run("stale evidence does not inflate coverage alongside a current fact", func(t *testing.T) {
+		stale := evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-40*24*time.Hour))
+		current := evidenceValue(DimensionNutrition, SourceFieldFeedingNeed, "NO", asOf.Add(-5*24*time.Hour))
+		got := evaluateAt(t, asOf, stale, current)
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.Coverage != CoverageMedium {
+			t.Fatalf("coverage = %q, want MEDIUM (one usable current fact; stale fact must not add coverage)", nutrition.Coverage)
+		}
+	})
+
+	t.Run("stale evidence does not inflate coverage alongside a recent fact", func(t *testing.T) {
+		stale := evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-40*24*time.Hour))
+		recent := evidenceValue(DimensionNutrition, SourceFieldFeedingNeed, "NO", asOf.Add(-20*24*time.Hour))
+		got := evaluateAt(t, asOf, stale, recent)
+		nutrition := evaluationFor(got, DimensionNutrition)
+		if nutrition.Coverage != CoverageMedium {
+			t.Fatalf("coverage = %q, want MEDIUM (usable recent fact; stale fact must not add coverage)", nutrition.Coverage)
+		}
+	})
 }
 
 func TestEvaluateDimensionsTimelineAndManagementEvents(t *testing.T) {

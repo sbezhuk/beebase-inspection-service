@@ -90,7 +90,6 @@ func TestCreateRequest_Validate(t *testing.T) {
 }
 
 func TestCreateRequest_Validate_RejectsForeignAssessmentFields(t *testing.T) {
-	stringPtr := func(value string) *string { return &value }
 	validHiveID := uuid.New().String()
 	cases := []struct {
 		name       string
@@ -101,49 +100,49 @@ func TestCreateRequest_Validate_RejectsForeignAssessmentFields(t *testing.T) {
 			name: "ROUTINE with HEALTH field",
 			typ:  "ROUTINE",
 			assessment: AssessmentRequest{
-				ColonyStrength:     stringPtr("STRONG"),
-				HealthConcernLevel: stringPtr("HIGH"),
+				ColonyStrength:     ptr(inspection.ColonyStrengthStrong),
+				HealthConcernLevel: ptr(inspection.HealthConcernHigh),
 			},
 		},
 		{
 			name: "QUEEN with FEEDING field",
 			typ:  "QUEEN",
 			assessment: AssessmentRequest{
-				QueenObserved:    stringPtr("OBSERVED"),
-				FeedingPerformed: stringPtr("YES"),
+				QueenObserved:    ptr(inspection.QueenObservedObserved),
+				FeedingPerformed: ptr(inspection.FeedingPerformedYes),
 			},
 		},
 		{
 			name: "BROOD with SEASONAL field",
 			typ:  "BROOD",
 			assessment: AssessmentRequest{
-				BroodPattern: stringPtr("SOLID"),
-				Season:       stringPtr("WINTER"),
+				BroodPattern: ptr(inspection.BroodPatternSolid),
+				Season:       ptr(inspection.SeasonalWinter),
 			},
 		},
 		{
 			name: "HEALTH with QUEEN field",
 			typ:  "HEALTH",
 			assessment: AssessmentRequest{
-				HealthOverallCondition: stringPtr("GOOD"),
-				QueenObserved:          stringPtr("OBSERVED"),
+				HealthOverallCondition: ptr(inspection.HealthOverallGood),
+				QueenObserved:          ptr(inspection.QueenObservedObserved),
 			},
 		},
 		{
 			name: "FEEDING with BROOD field",
 			typ:  "FEEDING",
 			assessment: AssessmentRequest{
-				FeedingPerformed: stringPtr("NO"),
-				BroodPattern:     stringPtr("SOLID"),
+				FeedingPerformed: ptr(inspection.FeedingPerformedNo),
+				BroodPattern:     ptr(inspection.BroodPatternSolid),
 			},
 		},
 		{
 			name: "SEASONAL with HEALTH field",
 			typ:  "SEASONAL",
 			assessment: AssessmentRequest{
-				Season:                 stringPtr("SPRING"),
-				SeasonalReadiness:      stringPtr("READY"),
-				HealthOverallCondition: stringPtr("GOOD"),
+				Season:                 ptr(inspection.SeasonalSpring),
+				SeasonalReadiness:      ptr(inspection.SeasonalReadinessReady),
+				HealthOverallCondition: ptr(inspection.HealthOverallGood),
 			},
 		},
 	}
@@ -212,11 +211,11 @@ func TestCreateRequest_Validate_RejectsFlutterPayloadAfterTypeChange(t *testing.
 
 func TestCreateRequest_Validate_AcceptsFullyCompletedFlutterAssessments(t *testing.T) {
 	cases := map[string]string{
-		"ROUTINE": `{"colonyStrength":"STRONG","queenStatus":"HEALTHY","broodStatus":"HEALTHY","foodStores":"ADEQUATE","healthConcerns":"NONE"}`,
-		"QUEEN": `{"queenObserved":"OBSERVED","eggsObserved":"YES","queenCells":"NONE","queenCondition":"NORMAL"}`,
-		"BROOD": `{"broodAmount":"MODERATE","broodPattern":"SOLID","broodStages":["EGGS","LARVAE","CAPPED"],"broodConcerns":"NONE"}`,
-		"HEALTH": `{"healthOverallCondition":"GOOD","pestSigns":["VARROA_MITES"],"healthWarningSigns":["ABNORMAL_BROOD"],"healthConcernLevel":"LOW"}`,
-		"FEEDING": `{"foodStores":"LOW","feedingNeed":"YES","feedingPerformed":"YES","feedTypes":["SUGAR_SYRUP","POLLEN_SUBSTITUTE"]}`,
+		"ROUTINE":  `{"colonyStrength":"STRONG","queenStatus":"HEALTHY","broodStatus":"HEALTHY","foodStores":"ADEQUATE","healthConcerns":"NONE"}`,
+		"QUEEN":    `{"queenObserved":"OBSERVED","eggsObserved":"YES","queenCells":"NONE","queenCondition":"NORMAL"}`,
+		"BROOD":    `{"broodAmount":"MODERATE","broodPattern":"SOLID","broodStages":["EGGS","LARVAE","CAPPED"],"broodConcerns":"NONE"}`,
+		"HEALTH":   `{"healthOverallCondition":"GOOD","pestSigns":["VARROA_MITES"],"healthWarningSigns":["ABNORMAL_BROOD"],"healthConcernLevel":"LOW"}`,
+		"FEEDING":  `{"foodStores":"LOW","feedingNeed":"YES","feedingPerformed":"YES","feedTypes":["SUGAR_SYRUP","POLLEN_SUBSTITUTE"]}`,
 		"SEASONAL": `{"season":"AUTUMN","colonyStrength":"STRONG","seasonalStoreReadiness":"SUFFICIENT","seasonalReadiness":"READY","seasonalConcerns":["FOOD_STORES"]}`,
 	}
 
@@ -558,3 +557,5 @@ func TestParseSortOrder(t *testing.T) {
 		})
 	}
 }
+
+func ptr[T any](v T) *T { return &v }

@@ -112,154 +112,80 @@ func (r *UpdateRequest) Validate() map[string]string {
 	return fields
 }
 
+// AssessmentRequest is the wire shape of one assessment payload. Fields use
+// the same named string types as the domain Assessment (not raw string) so
+// the JSON tag is the only place the wire contract is defined - the type
+// itself documents the closed set of accepted values, while
+// encoding/json still decodes any JSON string into it unvalidated (that
+// happens in Assessment.ValidateFor, via domain()). Wire representation is
+// unchanged: these are still plain JSON strings/arrays of strings.
 type AssessmentRequest struct {
-	Version                *int      `json:"version"`
-	ColonyStrength         *string   `json:"colonyStrength"`
-	QueenStatus            *string   `json:"queenStatus"`
-	BroodStatus            *string   `json:"broodStatus"`
-	FoodStores             *string   `json:"foodStores"`
-	HealthConcerns         *string   `json:"healthConcerns"`
-	QueenObserved          *string   `json:"queenObserved"`
-	EggsObserved           *string   `json:"eggsObserved"`
-	QueenCells             *string   `json:"queenCells"`
-	QueenCondition         *string   `json:"queenCondition"`
-	BroodAmount            *string   `json:"broodAmount"`
-	BroodPattern           *string   `json:"broodPattern"`
-	BroodStages            *[]string `json:"broodStages"`
-	BroodConcerns          *string   `json:"broodConcerns"`
-	HealthOverallCondition *string   `json:"healthOverallCondition"`
-	PestSigns              *[]string `json:"pestSigns"`
-	HealthWarningSigns     *[]string `json:"healthWarningSigns"`
-	HealthConcernLevel     *string   `json:"healthConcernLevel"`
-	FeedingNeed            *string   `json:"feedingNeed"`
-	FeedingPerformed       *string   `json:"feedingPerformed"`
-	FeedTypes              *[]string `json:"feedTypes"`
-	Season                 *string   `json:"season"`
-	SeasonalStoreReadiness *string   `json:"seasonalStoreReadiness"`
-	SeasonalReadiness      *string   `json:"seasonalReadiness"`
-	SeasonalConcerns       *[]string `json:"seasonalConcerns"`
+	Version                *int                               `json:"version"`
+	ColonyStrength         *inspection.ColonyStrength         `json:"colonyStrength"`
+	QueenStatus            *inspection.QueenStatus            `json:"queenStatus"`
+	BroodStatus            *inspection.BroodStatus            `json:"broodStatus"`
+	FoodStores             *inspection.FoodStores             `json:"foodStores"`
+	HealthConcerns         *inspection.HealthConcerns         `json:"healthConcerns"`
+	QueenObserved          *inspection.QueenObserved          `json:"queenObserved"`
+	EggsObserved           *inspection.EggsObserved           `json:"eggsObserved"`
+	QueenCells             *inspection.QueenCells             `json:"queenCells"`
+	QueenCondition         *inspection.QueenCondition         `json:"queenCondition"`
+	BroodAmount            *inspection.BroodAmount            `json:"broodAmount"`
+	BroodPattern           *inspection.BroodPattern           `json:"broodPattern"`
+	BroodStages            *[]inspection.BroodStage           `json:"broodStages"`
+	BroodConcerns          *inspection.BroodConcerns          `json:"broodConcerns"`
+	HealthOverallCondition *inspection.HealthOverallCondition `json:"healthOverallCondition"`
+	PestSigns              *[]inspection.PestSign             `json:"pestSigns"`
+	HealthWarningSigns     *[]inspection.HealthWarningSign    `json:"healthWarningSigns"`
+	HealthConcernLevel     *inspection.HealthConcernLevel     `json:"healthConcernLevel"`
+	FeedingNeed            *inspection.FeedingNeed            `json:"feedingNeed"`
+	FeedingPerformed       *inspection.FeedingPerformed       `json:"feedingPerformed"`
+	FeedTypes              *[]inspection.FeedType             `json:"feedTypes"`
+	Season                 *inspection.SeasonalPhase          `json:"season"`
+	SeasonalStoreReadiness *inspection.SeasonalStoreReadiness `json:"seasonalStoreReadiness"`
+	SeasonalReadiness      *inspection.SeasonalReadiness      `json:"seasonalReadiness"`
+	SeasonalConcerns       *[]inspection.SeasonalConcern      `json:"seasonalConcerns"`
 }
 
+// domain copies r into a domain Assessment. Every field is already the
+// domain's own named type, so this is a plain field-for-field copy - no
+// string parsing or casting - and allowed values are still enforced by
+// Assessment.ValidateFor, not here.
 func (r *AssessmentRequest) domain() *inspection.Assessment {
 	if r == nil {
 		return nil
 	}
-	a := &inspection.Assessment{}
+	version := 0
 	if r.Version != nil {
-		a.Version = *r.Version
+		version = *r.Version
 	}
-	if r.ColonyStrength != nil {
-		v := inspection.ColonyStrength(*r.ColonyStrength)
-		a.ColonyStrength = &v
+	return &inspection.Assessment{
+		Version:                version,
+		ColonyStrength:         r.ColonyStrength,
+		QueenStatus:            r.QueenStatus,
+		BroodStatus:            r.BroodStatus,
+		FoodStores:             r.FoodStores,
+		HealthConcerns:         r.HealthConcerns,
+		QueenObserved:          r.QueenObserved,
+		EggsObserved:           r.EggsObserved,
+		QueenCells:             r.QueenCells,
+		QueenCondition:         r.QueenCondition,
+		BroodAmount:            r.BroodAmount,
+		BroodPattern:           r.BroodPattern,
+		BroodStages:            r.BroodStages,
+		BroodConcerns:          r.BroodConcerns,
+		HealthOverallCondition: r.HealthOverallCondition,
+		PestSigns:              r.PestSigns,
+		HealthWarningSigns:     r.HealthWarningSigns,
+		HealthConcernLevel:     r.HealthConcernLevel,
+		FeedingNeed:            r.FeedingNeed,
+		FeedingPerformed:       r.FeedingPerformed,
+		FeedTypes:              r.FeedTypes,
+		Season:                 r.Season,
+		SeasonalStoreReadiness: r.SeasonalStoreReadiness,
+		SeasonalReadiness:      r.SeasonalReadiness,
+		SeasonalConcerns:       r.SeasonalConcerns,
 	}
-	if r.QueenStatus != nil {
-		v := inspection.QueenStatus(*r.QueenStatus)
-		a.QueenStatus = &v
-	}
-	if r.BroodStatus != nil {
-		v := inspection.BroodStatus(*r.BroodStatus)
-		a.BroodStatus = &v
-	}
-	if r.FoodStores != nil {
-		v := inspection.FoodStores(*r.FoodStores)
-		a.FoodStores = &v
-	}
-	if r.HealthConcerns != nil {
-		v := inspection.HealthConcerns(*r.HealthConcerns)
-		a.HealthConcerns = &v
-	}
-	if r.QueenObserved != nil {
-		v := inspection.QueenObserved(*r.QueenObserved)
-		a.QueenObserved = &v
-	}
-	if r.EggsObserved != nil {
-		v := inspection.EggsObserved(*r.EggsObserved)
-		a.EggsObserved = &v
-	}
-	if r.QueenCells != nil {
-		v := inspection.QueenCells(*r.QueenCells)
-		a.QueenCells = &v
-	}
-	if r.QueenCondition != nil {
-		v := inspection.QueenCondition(*r.QueenCondition)
-		a.QueenCondition = &v
-	}
-	if r.BroodAmount != nil {
-		v := inspection.BroodAmount(*r.BroodAmount)
-		a.BroodAmount = &v
-	}
-	if r.BroodPattern != nil {
-		v := inspection.BroodPattern(*r.BroodPattern)
-		a.BroodPattern = &v
-	}
-	if r.BroodStages != nil {
-		values := make([]inspection.BroodStage, len(*r.BroodStages))
-		for index, stage := range *r.BroodStages {
-			values[index] = inspection.BroodStage(stage)
-		}
-		a.BroodStages = &values
-	}
-	if r.BroodConcerns != nil {
-		v := inspection.BroodConcerns(*r.BroodConcerns)
-		a.BroodConcerns = &v
-	}
-	if r.HealthOverallCondition != nil {
-		v := inspection.HealthOverallCondition(*r.HealthOverallCondition)
-		a.HealthOverallCondition = &v
-	}
-	if r.PestSigns != nil {
-		values := make([]inspection.PestSign, len(*r.PestSigns))
-		for index, sign := range *r.PestSigns {
-			values[index] = inspection.PestSign(sign)
-		}
-		a.PestSigns = &values
-	}
-	if r.HealthWarningSigns != nil {
-		values := make([]inspection.HealthWarningSign, len(*r.HealthWarningSigns))
-		for index, sign := range *r.HealthWarningSigns {
-			values[index] = inspection.HealthWarningSign(sign)
-		}
-		a.HealthWarningSigns = &values
-	}
-	if r.HealthConcernLevel != nil {
-		v := inspection.HealthConcernLevel(*r.HealthConcernLevel)
-		a.HealthConcernLevel = &v
-	}
-	if r.FeedingNeed != nil {
-		v := inspection.FeedingNeed(*r.FeedingNeed)
-		a.FeedingNeed = &v
-	}
-	if r.FeedingPerformed != nil {
-		v := inspection.FeedingPerformed(*r.FeedingPerformed)
-		a.FeedingPerformed = &v
-	}
-	if r.FeedTypes != nil {
-		values := make([]inspection.FeedType, len(*r.FeedTypes))
-		for index, feedType := range *r.FeedTypes {
-			values[index] = inspection.FeedType(feedType)
-		}
-		a.FeedTypes = &values
-	}
-	if r.Season != nil {
-		v := inspection.SeasonalPhase(*r.Season)
-		a.Season = &v
-	}
-	if r.SeasonalStoreReadiness != nil {
-		v := inspection.SeasonalStoreReadiness(*r.SeasonalStoreReadiness)
-		a.SeasonalStoreReadiness = &v
-	}
-	if r.SeasonalReadiness != nil {
-		v := inspection.SeasonalReadiness(*r.SeasonalReadiness)
-		a.SeasonalReadiness = &v
-	}
-	if r.SeasonalConcerns != nil {
-		values := make([]inspection.SeasonalConcern, len(*r.SeasonalConcerns))
-		for index, concern := range *r.SeasonalConcerns {
-			values[index] = inspection.SeasonalConcern(concern)
-		}
-		a.SeasonalConcerns = &values
-	}
-	return a
 }
 
 func validateAssessment(r *AssessmentRequest, typ string, fields map[string]string) {

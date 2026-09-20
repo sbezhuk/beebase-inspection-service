@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
 type DimensionState string
@@ -283,154 +285,154 @@ func interpretEvidence(evidence HealthEvidence) (evidenceSignal, bool, error) {
 	value := *evidence.Value
 	switch evidence.Source.SourceField {
 	case SourceFieldColonyStrength:
-		switch value {
-		case "WEAK":
+		switch inspection.ColonyStrength(value) {
+		case inspection.ColonyStrengthWeak:
 			return signalConcern, true, nil
-		case "MODERATE", "STRONG":
+		case inspection.ColonyStrengthModerate, inspection.ColonyStrengthStrong:
 			return signalFavorable, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldQueenStatus:
-		switch value {
-		case "HEALTHY":
+		switch inspection.QueenStatus(value) {
+		case inspection.QueenStatusHealthy:
 			return signalFavorable, true, nil
-		case "PROBLEM":
+		case inspection.QueenStatusProblem:
 			return signalConcern, true, nil
-		case "NOT_CHECKED":
+		case inspection.QueenStatusNotChecked:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldBroodStatus:
-		switch value {
-		case "HEALTHY":
+		switch inspection.BroodStatus(value) {
+		case inspection.BroodStatusHealthy:
 			return signalFavorable, true, nil
-		case "PROBLEM":
+		case inspection.BroodStatusProblem:
 			return signalConcern, true, nil
-		case "NOT_CHECKED":
+		case inspection.BroodStatusNotChecked:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldFoodStores:
-		switch value {
-		case "LOW":
+		switch inspection.FoodStores(value) {
+		case inspection.FoodStoresLow:
 			return signalConcern, true, nil
-		case "ADEQUATE", "ABUNDANT":
+		case inspection.FoodStoresAdequate, inspection.FoodStoresAbundant:
 			return signalFavorable, true, nil
-		case "NOT_CHECKED":
+		case inspection.FoodStoresNotChecked:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldFeedingNeed:
-		switch value {
-		case "NO":
+		switch inspection.FeedingNeed(value) {
+		case inspection.FeedingNeedNo:
 			return signalFavorable, true, nil
-		case "SOON":
+		case inspection.FeedingNeedSoon:
 			return signalWatch, true, nil
-		case "YES":
+		case inspection.FeedingNeedYes:
 			return signalConcern, true, nil
-		case "UNSURE":
+		case inspection.FeedingNeedUnsure:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldHealthConcerns:
-		switch value {
-		case "NONE":
+		switch inspection.HealthConcerns(value) {
+		case inspection.HealthConcernsNone:
 			return signalFavorable, true, nil
-		case "PRESENT":
+		case inspection.HealthConcernsPresent:
 			return signalConcern, true, nil
-		case "NOT_CHECKED":
+		case inspection.HealthConcernsNotChecked:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldQueenObserved:
-		switch value {
-		case "OBSERVED":
+		switch inspection.QueenObserved(value) {
+		case inspection.QueenObservedObserved:
 			return signalNeutral, true, nil
-		case "NOT_OBSERVED", "UNSURE":
+		case inspection.QueenObservedNotObserved, inspection.QueenObservedUnsure:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldEggsObserved:
-		switch value {
-		case "YES":
+		switch inspection.EggsObserved(value) {
+		case inspection.EggsObservedYes:
 			return signalFavorable, true, nil
-		case "NO":
+		case inspection.EggsObservedNo:
 			return signalWatch, true, nil
-		case "UNSURE":
+		case inspection.EggsObservedUnsure:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldQueenCells:
-		switch value {
-		case "NONE":
+		switch inspection.QueenCells(value) {
+		case inspection.QueenCellsNone:
 			return signalFavorable, true, nil
-		case "PRESENT":
+		case inspection.QueenCellsPresent:
 			return signalWatch, true, nil
-		case "UNSURE":
+		case inspection.QueenCellsUnsure:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldQueenCondition:
-		switch value {
-		case "NORMAL":
+		switch inspection.QueenCondition(value) {
+		case inspection.QueenConditionNormal:
 			return signalFavorable, true, nil
-		case "CONCERN":
+		case inspection.QueenConditionConcern:
 			return signalConcern, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldBroodAmount:
-		switch value {
-		case "LOW":
+		switch inspection.BroodAmount(value) {
+		case inspection.BroodAmountLow:
 			return signalWatch, true, nil
-		case "MODERATE", "HIGH":
+		case inspection.BroodAmountModerate, inspection.BroodAmountHigh:
 			return signalFavorable, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldBroodPattern:
-		switch value {
-		case "SOLID":
+		switch inspection.BroodPattern(value) {
+		case inspection.BroodPatternSolid:
 			return signalFavorable, true, nil
-		case "MIXED", "SPOTTY":
+		case inspection.BroodPatternMixed, inspection.BroodPatternSpotty:
 			return signalWatch, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldBroodStages:
-		switch value {
-		case "EGGS", "LARVAE", "CAPPED":
+		switch inspection.BroodStage(value) {
+		case inspection.BroodStageEggs, inspection.BroodStageLarvae, inspection.BroodStageCapped:
 			return signalFavorable, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldBroodConcerns:
-		switch value {
-		case "NONE":
+		switch inspection.BroodConcerns(value) {
+		case inspection.BroodConcernsNone:
 			return signalFavorable, true, nil
-		case "OBSERVED":
+		case inspection.BroodConcernsObserved:
 			return signalConcern, true, nil
-		case "UNSURE":
+		case inspection.BroodConcernsUnsure:
 			return signalUnknown, false, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldHealthOverallCondition:
-		switch value {
-		case "GOOD":
+		switch inspection.HealthOverallCondition(value) {
+		case inspection.HealthOverallGood:
 			return signalFavorable, true, nil
-		case "FAIR":
+		case inspection.HealthOverallFair:
 			return signalWatch, true, nil
-		case "POOR":
+		case inspection.HealthOverallPoor:
 			return signalConcern, true, nil
 		default:
 			return unknownValue(evidence)
@@ -440,30 +442,30 @@ func interpretEvidence(evidence HealthEvidence) (evidenceSignal, bool, error) {
 	case SourceFieldHealthWarningSigns:
 		return signalWatch, true, nil
 	case SourceFieldHealthConcernLevel:
-		switch value {
-		case "NONE":
+		switch inspection.HealthConcernLevel(value) {
+		case inspection.HealthConcernNone:
 			return signalFavorable, true, nil
-		case "LOW", "MODERATE":
+		case inspection.HealthConcernLow, inspection.HealthConcernModerate:
 			return signalWatch, true, nil
-		case "HIGH":
+		case inspection.HealthConcernHigh:
 			return signalConcern, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldSeasonalStoreReadiness:
-		switch value {
-		case "SUFFICIENT":
+		switch inspection.SeasonalStoreReadiness(value) {
+		case inspection.SeasonalStoresSufficient:
 			return signalFavorable, true, nil
-		case "MARGINAL":
+		case inspection.SeasonalStoresMarginal:
 			return signalWatch, true, nil
-		case "INSUFFICIENT":
+		case inspection.SeasonalStoresInsufficient:
 			return signalConcern, true, nil
 		default:
 			return unknownValue(evidence)
 		}
 	case SourceFieldSeasonalConcerns:
-		switch value {
-		case "FOOD_STORES", "COLONY_STRENGTH", "QUEEN", "BROOD", "PESTS_OR_DISEASE":
+		switch inspection.SeasonalConcern(value) {
+		case inspection.SeasonalConcernFoodStores, inspection.SeasonalConcernColonyStrength, inspection.SeasonalConcernQueen, inspection.SeasonalConcernBrood, inspection.SeasonalConcernPestsOrDisease:
 			return signalWatch, true, nil
 		default:
 			return unknownValue(evidence)

@@ -68,6 +68,21 @@ func (r *countingRepo) ListAllByHive(ctx context.Context, userID, hiveID uuid.UU
 	return r.fakeRepo.ListAllByHive(ctx, userID, hiveID)
 }
 
+// fixedOrderRepo wraps *fakeRepo but answers ListAllByHive with exactly
+// the slice it was constructed with, in that exact order, bypassing
+// fakeRepo's own (InspectedAt, ID) sort entirely. This lets a test prove
+// GetHiveHealthHistory's evidence supersession is independent of
+// repository row order, rather than merely trusting fakeRepo's
+// UUID-tiebreak sort to happen to agree across runs.
+type fixedOrderRepo struct {
+	*fakeRepo
+	order []*inspection.Inspection
+}
+
+func (r *fixedOrderRepo) ListAllByHive(_ context.Context, _, _ uuid.UUID) ([]*inspection.Inspection, error) {
+	return r.order, nil
+}
+
 func newTestHiveHealthHistoryService(repo *fakeRepo, verifier *fakeHiveVerifier, entitlement *fakeEntitlementResolver) *appinspection.Service {
 	return appinspection.NewService(repo, verifier, newFakeMediaClient(), 14, entitlement)
 }
@@ -79,6 +94,16 @@ func seedInspection(t *testing.T, repo *fakeRepo, userID, hiveID uuid.UUID, at t
 	if err := repo.Create(context.Background(), created); err != nil {
 		t.Fatalf("seed inspection: %v", err)
 	}
+	return created
+}
+
+// buildInspection constructs an inspection in memory without persisting
+// it through any repository - used where a test needs to control the
+// exact slice/order a fake repository answers with (see fixedOrderRepo),
+// rather than relying on fakeRepo's own storage and sort order.
+func buildInspection(userID, hiveID uuid.UUID, at time.Time, assessment *inspection.Assessment) *inspection.Inspection {
+	created := inspection.New(userID, hiveID, at, "", inspection.TypeHealth)
+	created.Assessment = assessment
 	return created
 }
 
@@ -308,6 +333,148 @@ func TestGetHiveHealthHistory_FutureInspectionsDoNotAffectEarlierPoints(t *testi
 	}
 }
 
+// TestGetHiveHealthHistory_AdjacentDaySupersessionNoOneDayLag is the
+// direct regression for the exact scenario the date-semantics audit
+// flagged as untested: two inspections on *adjacent* calendar days,
+// touching the same (dimension, sourceField), with opposite signals.
+// 2026-09-19 must reflect the favorable reading and 2026-09-20 must
+// reflect the concerning one *on that same day* - there must be no
+// off-by-one where the second inspection only becomes visible on
+// 2026-09-21. This complements
+// TestGetHiveHealthHistory_FutureInspectionsDoNotAffectEarlierPoints,
+// which only exercised a 10-day gap.
+func TestGetHiveHealthHistory_AdjacentDaySupersessionNoOneDayLag(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	day19 := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	day20 := day19.AddDate(0, 0, 1)
+	seedInspection(t, repo, userID, hiveID, day19, foodStoresAssessment(inspection.FoodStoresAdequate)) // favorable
+	seedInspection(t, repo, userID, hiveID, day20, foodStoresAssessment(inspection.FoodStoresLow))      // concern, same sourceField
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day19, day20)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if len(result.Points) != 2 {
+		t.Fatalf("len(Points) = %d, want 2", len(result.Points))
+	}
+
+	day19Nutrition := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionNutrition)
+	day20Nutrition := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionNutrition)
+
+	if day19Nutrition.State != health.DimensionGood {
+		t.Fatalf("2026-09-19 nutrition state = %q, want GOOD (must use inspection A, not the next day's B)", day19Nutrition.State)
+	}
+	if day20Nutrition.State != health.DimensionConcern {
+		t.Fatalf("2026-09-20 nutrition state = %q, want CONCERN (B must be visible on its own day, no one-day lag)", day20Nutrition.State)
+	}
+}
+
+// --- inspection markers ---
+
+// TestGetHiveHealthHistory_InspectionMarkersIncludeRangeBoundaries proves
+// the inspections[] marker filter is inclusive on both ends, exactly like
+// the points range: an inspection dated precisely `from` or precisely
+// `to` must appear, and anything strictly outside must not.
+func TestGetHiveHealthHistory_InspectionMarkersIncludeRangeBoundaries(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+
+	onFrom := seedInspection(t, repo, userID, hiveID, from, foodStoresAssessment(inspection.FoodStoresAdequate))
+	onTo := seedInspection(t, repo, userID, hiveID, to, foodStoresAssessment(inspection.FoodStoresAdequate))
+	beforeRange := seedInspection(t, repo, userID, hiveID, from.AddDate(0, 0, -1), foodStoresAssessment(inspection.FoodStoresAdequate))
+	afterRange := seedInspection(t, repo, userID, hiveID, to.AddDate(0, 0, 1), foodStoresAssessment(inspection.FoodStoresAdequate))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, from, to)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	included := make(map[uuid.UUID]bool, len(result.Inspections))
+	for _, i := range result.Inspections {
+		included[i.ID] = true
+	}
+
+	if !included[onFrom.ID] {
+		t.Error("inspection dated exactly `from` (2026-09-01) is missing from markers, want included")
+	}
+	if !included[onTo.ID] {
+		t.Error("inspection dated exactly `to` (2026-09-30) is missing from markers, want included")
+	}
+	if included[beforeRange.ID] {
+		t.Error("inspection dated before `from` (2026-08-31) is present in markers, want excluded")
+	}
+	if included[afterRange.ID] {
+		t.Error("inspection dated after `to` (2026-10-01) is present in markers, want excluded")
+	}
+	if len(result.Inspections) != 2 {
+		t.Fatalf("len(Inspections) = %d, want 2 (exactly the two boundary-dated inspections)", len(result.Inspections))
+	}
+}
+
+// --- multiple inspections on the same calendar date ---
+
+// TestGetHiveHealthHistory_SameDateConflictingEvidenceIsCoEqualAndOrderIndependent
+// documents the existing (not newly introduced) semantics for two
+// inspections sharing one calendar date and the same (dimension,
+// sourceField): there is no "latest wins" tiebreaker - both readings are
+// treated as simultaneously true evidence and blended by the existing
+// evaluator rules. A DimensionState of WATCH can only arise here from
+// counting *both* the favorable and the concerning reading together
+// (health.stateFor: hasConcern && hasFavorable => WATCH); if either
+// reading alone controlled the result, the state would be GOOD or
+// CONCERN, never WATCH. The test runs both physical orderings of the two
+// inspections through a repository double that returns them in an exact,
+// caller-chosen order (fixedOrderRepo) - not fakeRepo's own sort - to
+// prove the outcome does not depend on row order, without relying on
+// created_at, UUID ordering, or any inspection time-of-day (none exists).
+func TestGetHiveHealthHistory_SameDateConflictingEvidenceIsCoEqualAndOrderIndependent(t *testing.T) {
+	userID := uuid.New()
+	hiveID := uuid.New()
+	day := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+
+	favorable := buildInspection(userID, hiveID, day, foodStoresAssessment(inspection.FoodStoresAdequate))
+	concern := buildInspection(userID, hiveID, day, foodStoresAssessment(inspection.FoodStoresLow))
+
+	cases := []struct {
+		name  string
+		order []*inspection.Inspection
+	}{
+		{"favorable scanned before concern", []*inspection.Inspection{favorable, concern}},
+		{"concern scanned before favorable", []*inspection.Inspection{concern, favorable}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fixedOrderRepo{fakeRepo: newFakeRepo(), order: tc.order}
+			verifier := newFakeHiveVerifier()
+			verifier.allow("token", hiveID)
+			svc := appinspection.NewService(repo, verifier, newFakeMediaClient(), 14, newFakeEntitlementResolver())
+
+			result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day, day)
+			if err != nil {
+				t.Fatalf("GetHiveHealthHistory: %v", err)
+			}
+			nutrition := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionNutrition)
+			if nutrition.State != health.DimensionWatch {
+				t.Fatalf("%s: nutrition state = %q, want WATCH (both same-day readings must count as co-equal evidence)", tc.name, nutrition.State)
+			}
+		})
+	}
+}
+
 // --- matches the live snapshot for "today" ---
 
 // TestGetHiveHealthHistory_LastPointMatchesLiveHealthForSameClock proves
@@ -469,6 +636,95 @@ func TestGetHiveHealthHistory_ThirtyDayStaleBoundaryChangesState(t *testing.T) {
 	// either day 30 or day 31 - only time passing.
 	if len(result.Inspections) != 0 {
 		t.Fatalf("Inspections in [day30, day31] = %d, want 0 (the only inspection was on day1)", len(result.Inspections))
+	}
+}
+
+// TestGetHiveHealthHistory_RecencyAcrossYearBoundary proves age-in-days
+// (and the resulting Nutrition CURRENT/RECENT coverage boundary) is
+// computed correctly across a Dec 31 -> Jan 1 rollover, not merely that
+// point dates/labels step correctly across it (see
+// TestGetHiveHealthHistory_MonthYearLeapBoundaries, which only checks
+// labels). The inspection is recorded 2026-12-21; 2026-12-31 is exactly
+// 10 days later (Nutrition's CURRENT boundary), 2027-01-01 is 11.
+func TestGetHiveHealthHistory_RecencyAcrossYearBoundary(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2026, 12, 21, 0, 0, 0, 0, time.UTC)
+	feedingNo := inspection.FeedingNeedNo
+	seedInspection(t, repo, userID, hiveID, recorded, &inspection.Assessment{Version: 1, FoodStores: ptr(inspection.FoodStoresAdequate), FeedingNeed: &feedingNo})
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	lastDayOfYear := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	firstDayOfNextYear := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, lastDayOfYear, firstDayOfNextYear)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if len(result.Points) != 2 {
+		t.Fatalf("len(Points) = %d, want 2", len(result.Points))
+	}
+
+	dec31 := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionNutrition)
+	jan1 := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionNutrition)
+
+	if dec31.Coverage != health.CoverageHigh {
+		t.Fatalf("nutrition coverage on 2026-12-31 (age=10 days) = %q, want HIGH", dec31.Coverage)
+	}
+	if jan1.Coverage != health.CoverageMedium {
+		t.Fatalf("nutrition coverage on 2027-01-01 (age=11 days) = %q, want MEDIUM - the year rollover must not distort day-counting", jan1.Coverage)
+	}
+	if dec31.State != health.DimensionGood || jan1.State != health.DimensionGood {
+		t.Fatalf("nutrition state = (%q, %q), want (GOOD, GOOD) unchanged across the year boundary", dec31.State, jan1.State)
+	}
+}
+
+// TestGetHiveHealthHistory_RecencyAcrossLeapDay proves age-in-days is
+// computed correctly when the elapsed span includes February 29 of a
+// leap year - if the implementation ever assumed a fixed 28-day February
+// instead of deriving age from real calendar dates, this would silently
+// shift the 14-day boundary by one day. The inspection is recorded
+// 2028-02-15 (2028 is a leap year); 2028-02-29 is exactly 14 days later
+// (the QUEEN/other-dimension CURRENT boundary, and the leap day itself),
+// 2028-03-01 is 15.
+func TestGetHiveHealthHistory_RecencyAcrossLeapDay(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2028, 2, 15, 0, 0, 0, 0, time.UTC)
+	normal := inspection.QueenConditionNormal
+	seedInspection(t, repo, userID, hiveID, recorded, &inspection.Assessment{Version: 1, QueenStatus: ptr(inspection.QueenStatusHealthy), QueenCondition: &normal})
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	leapDay := time.Date(2028, 2, 29, 0, 0, 0, 0, time.UTC)
+	dayAfter := time.Date(2028, 3, 1, 0, 0, 0, 0, time.UTC)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, leapDay, dayAfter)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if len(result.Points) != 2 {
+		t.Fatalf("len(Points) = %d, want 2", len(result.Points))
+	}
+
+	feb29 := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionQueen)
+	mar1 := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionQueen)
+
+	if feb29.Coverage != health.CoverageHigh {
+		t.Fatalf("queen coverage on 2028-02-29 (age=14 days, the leap day) = %q, want HIGH", feb29.Coverage)
+	}
+	if mar1.Coverage != health.CoverageMedium {
+		t.Fatalf("queen coverage on 2028-03-01 (age=15 days) = %q, want MEDIUM - the leap day must still count as exactly one day", mar1.Coverage)
+	}
+	if feb29.State != health.DimensionGood || mar1.State != health.DimensionGood {
+		t.Fatalf("queen state = (%q, %q), want (GOOD, GOOD) unchanged across the leap day", feb29.State, mar1.State)
 	}
 }
 

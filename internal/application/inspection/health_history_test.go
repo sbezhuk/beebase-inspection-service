@@ -1,0 +1,475 @@
+package inspection_test
+
+// This file covers GetHiveHealthHistory: deriving one Colony Health v1
+// point per calendar day from a hive's inspection history, gated on Pro
+// entitlement. See application/inspection.Service.GetHiveHealthHistory
+// and EntitlementResolver.
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
+	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
+)
+
+// --- fakes specific to this file ---
+
+// fakeEntitlementResolver stands in for subscription-service: entitlement
+// defaults to Pro for any token not explicitly set, so every test that
+// isn't specifically exercising the Free gate doesn't need to configure
+// one.
+type fakeEntitlementResolver struct {
+	mu        sync.Mutex
+	byToken   map[string]string
+	callCount int
+}
+
+func newFakeEntitlementResolver() *fakeEntitlementResolver {
+	return &fakeEntitlementResolver{byToken: map[string]string{}}
+}
+
+func (f *fakeEntitlementResolver) setEntitlement(token, entitlement string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byToken[token] = entitlement
+}
+
+func (f *fakeEntitlementResolver) GetEntitlement(_ context.Context, accessToken string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.callCount++
+	if entitlement, ok := f.byToken[accessToken]; ok {
+		return entitlement, nil
+	}
+	return appinspection.EntitlementPro, nil
+}
+
+// countingRepo wraps *fakeRepo to count ListAllByHive calls, proving
+// GetHiveHealthHistory loads a hive's inspection history exactly once
+// regardless of how many daily points it derives from it - never once
+// per day.
+type countingRepo struct {
+	*fakeRepo
+	mu           sync.Mutex
+	listAllCalls int
+}
+
+func (r *countingRepo) ListAllByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
+	r.mu.Lock()
+	r.listAllCalls++
+	r.mu.Unlock()
+	return r.fakeRepo.ListAllByHive(ctx, userID, hiveID)
+}
+
+func newTestHiveHealthHistoryService(repo *fakeRepo, verifier *fakeHiveVerifier, entitlement *fakeEntitlementResolver) *appinspection.Service {
+	return appinspection.NewService(repo, verifier, newFakeMediaClient(), 14, entitlement)
+}
+
+func seedInspection(t *testing.T, repo *fakeRepo, userID, hiveID uuid.UUID, at time.Time, assessment *inspection.Assessment) *inspection.Inspection {
+	t.Helper()
+	created := inspection.New(userID, hiveID, at, "", inspection.TypeHealth)
+	created.Assessment = assessment
+	if err := repo.Create(context.Background(), created); err != nil {
+		t.Fatalf("seed inspection: %v", err)
+	}
+	return created
+}
+
+func foodStoresAssessment(value inspection.FoodStores) *inspection.Assessment {
+	return &inspection.Assessment{Version: 1, FoodStores: &value}
+}
+
+func queenStatusAssessment(value inspection.QueenStatus) *inspection.Assessment {
+	return &inspection.Assessment{Version: 1, QueenStatus: &value}
+}
+
+// --- entitlement / ownership gating ---
+
+func TestGetHiveHealthHistory_FreeUserRejected(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	entitlement := newFakeEntitlementResolver()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	entitlement.setEntitlement("token", appinspection.EntitlementFree)
+	svc := newTestHiveHealthHistoryService(repo, verifier, entitlement)
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	_, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "token", hiveID, from, from)
+	if !errors.Is(err, appinspection.ErrHealthHistoryProRequired) {
+		t.Fatalf("GetHiveHealthHistory error = %v, want ErrHealthHistoryProRequired", err)
+	}
+}
+
+func TestGetHiveHealthHistory_ProUserAllowed(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	entitlement := newFakeEntitlementResolver()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	entitlement.setEntitlement("token", appinspection.EntitlementPro)
+	svc := newTestHiveHealthHistoryService(repo, verifier, entitlement)
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	result, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "token", hiveID, from, from)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if len(result.Points) != 1 {
+		t.Fatalf("len(Points) = %d, want 1", len(result.Points))
+	}
+}
+
+// TestGetHiveHealthHistory_OwnershipRespected proves a hive the caller
+// doesn't own is rejected with ErrHiveNotFound before entitlement is even
+// consulted - a caller must not learn "you'd need Pro" about a hive that
+// was never theirs.
+func TestGetHiveHealthHistory_OwnershipRespected(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	entitlement := newFakeEntitlementResolver()
+	entitlement.setEntitlement("attacker", appinspection.EntitlementFree)
+	svc := newTestHiveHealthHistoryService(newFakeRepo(), verifier, entitlement)
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	_, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "attacker", uuid.New(), from, from)
+	if !errors.Is(err, appinspection.ErrHiveNotFound) {
+		t.Fatalf("GetHiveHealthHistory error = %v, want ErrHiveNotFound", err)
+	}
+	if entitlement.callCount != 0 {
+		t.Fatalf("entitlement resolver called %d times, want 0 (ownership must fail first)", entitlement.callCount)
+	}
+}
+
+// --- shape / ordering ---
+
+func TestGetHiveHealthHistory_InclusiveRangeChronologicalOrder(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, 2)
+
+	result, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "token", hiveID, from, to)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if len(result.Points) != 3 {
+		t.Fatalf("len(Points) = %d, want 3 (inclusive of both endpoints)", len(result.Points))
+	}
+	want := []time.Time{from, from.AddDate(0, 0, 1), from.AddDate(0, 0, 2)}
+	for i, point := range result.Points {
+		if !point.Date.Equal(want[i]) {
+			t.Fatalf("Points[%d].Date = %v, want %v (chronological, oldest first)", i, point.Date, want[i])
+		}
+	}
+}
+
+// TestGetHiveHealthHistory_MonthYearLeapBoundaries proves date stepping
+// is correct across a leap day and a calendar year boundary, not just
+// within one ordinary month.
+func TestGetHiveHealthHistory_MonthYearLeapBoundaries(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	cases := []struct {
+		name string
+		from time.Time
+		to   time.Time
+		want []string
+	}{
+		{
+			name: "leap day",
+			from: time.Date(2028, 2, 28, 0, 0, 0, 0, time.UTC),
+			to:   time.Date(2028, 3, 1, 0, 0, 0, 0, time.UTC),
+			want: []string{"2028-02-28", "2028-02-29", "2028-03-01"},
+		},
+		{
+			name: "year boundary",
+			from: time.Date(2026, 12, 30, 0, 0, 0, 0, time.UTC),
+			to:   time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC),
+			want: []string{"2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "token", hiveID, tc.from, tc.to)
+			if err != nil {
+				t.Fatalf("GetHiveHealthHistory: %v", err)
+			}
+			if len(result.Points) != len(tc.want) {
+				t.Fatalf("len(Points) = %d, want %d", len(result.Points), len(tc.want))
+			}
+			for i, point := range result.Points {
+				got := point.Date.Format("2006-01-02")
+				if got != tc.want[i] {
+					t.Fatalf("Points[%d].Date = %s, want %s", i, got, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetHiveHealthHistory_NoQualifyingInspectionsIsUnknownNone(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, 4)
+	result, err := svc.GetHiveHealthHistory(context.Background(), uuid.New(), "token", hiveID, from, to)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	for _, point := range result.Points {
+		if point.Evaluation.State != health.DimensionUnknown || point.Evaluation.Coverage != health.CoverageNone {
+			t.Fatalf("point %s = (%q, %q), want (UNKNOWN, NONE)", point.Date.Format("2006-01-02"), point.Evaluation.State, point.Evaluation.Coverage)
+		}
+	}
+	if len(result.Inspections) != 0 {
+		t.Fatalf("Inspections = %d, want 0", len(result.Inspections))
+	}
+}
+
+// --- N+1 avoidance ---
+
+func TestGetHiveHealthHistory_LoadsInspectionHistoryOnce(t *testing.T) {
+	inner := newFakeRepo()
+	repo := &countingRepo{fakeRepo: inner}
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+	seedInspection(t, inner, userID, hiveID, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), foodStoresAssessment(inspection.FoodStoresAdequate))
+
+	svc := appinspection.NewService(repo, verifier, newFakeMediaClient(), 14, newFakeEntitlementResolver())
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	to := from.AddDate(0, 0, 199) // 200 daily points
+	if _, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, from, to); err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+	if repo.listAllCalls != 1 {
+		t.Fatalf("ListAllByHive called %d times for 200 daily points, want exactly 1", repo.listAllCalls)
+	}
+}
+
+// --- future inspections must not leak backward ---
+
+func TestGetHiveHealthHistory_FutureInspectionsDoNotAffectEarlierPoints(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	day10 := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	day20 := day10.AddDate(0, 0, 10)
+	seedInspection(t, repo, userID, hiveID, day10, foodStoresAssessment(inspection.FoodStoresLow))
+	seedInspection(t, repo, userID, hiveID, day20, foodStoresAssessment(inspection.FoodStoresAdequate))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	day5 := day10.AddDate(0, 0, -5)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day5, day10)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	// day5..day9: before the first inspection even exists - no evidence.
+	for _, point := range result.Points[:5] {
+		nutrition := findDimension(point.Evaluation.Dimensions, health.DimensionNutrition)
+		if nutrition.State != health.DimensionUnknown {
+			t.Fatalf("point %s nutrition state = %q, want UNKNOWN (no evidence yet)", point.Date.Format("2006-01-02"), nutrition.State)
+		}
+	}
+
+	// day10: the LOW inspection is visible (inclusive), but the day20
+	// ADEQUATE inspection is 10 days in the future relative to day10 and
+	// must not have overridden it.
+	last := result.Points[len(result.Points)-1]
+	nutrition := findDimension(last.Evaluation.Dimensions, health.DimensionNutrition)
+	if nutrition.State != health.DimensionConcern {
+		t.Fatalf("point %s nutrition state = %q, want CONCERN (future ADEQUATE evidence must not leak backward)", last.Date.Format("2006-01-02"), nutrition.State)
+	}
+}
+
+// --- matches the live snapshot for "today" ---
+
+// TestGetHiveHealthHistory_LastPointMatchesLiveHealthForSameClock proves
+// that when to is the same calendar day GetHiveHealth is evaluated for
+// with the identical clock value, the history endpoint's last point and
+// the live endpoint's result agree exactly - the two must never silently
+// diverge for the "today" point a client would show as the current
+// reading on the graph.
+func TestGetHiveHealthHistory_LastPointMatchesLiveHealthForSameClock(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	today := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	seedInspection(t, repo, userID, hiveID, today.AddDate(0, 0, -3), queenStatusAssessment(inspection.QueenStatusHealthy))
+	seedInspection(t, repo, userID, hiveID, today.AddDate(0, 0, -1), foodStoresAssessment(inspection.FoodStoresAdequate))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	live, err := svc.GetHiveHealth(context.Background(), userID, "token", hiveID, today)
+	if err != nil {
+		t.Fatalf("GetHiveHealth: %v", err)
+	}
+	history, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, today.AddDate(0, 0, -5), today)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	last := history.Points[len(history.Points)-1]
+	if !last.Date.Equal(today) {
+		t.Fatalf("last point date = %v, want %v", last.Date, today)
+	}
+	if last.Evaluation.State != live.State || last.Evaluation.Coverage != live.Coverage {
+		t.Fatalf("history last point = (%q, %q), want live (%q, %q)", last.Evaluation.State, last.Evaluation.Coverage, live.State, live.Coverage)
+	}
+	for _, dimension := range live.Dimensions {
+		historyDimension := findDimension(last.Evaluation.Dimensions, dimension.Dimension)
+		if historyDimension.State != dimension.State || historyDimension.Coverage != dimension.Coverage {
+			t.Fatalf("history dimension %s = (%q, %q), want live (%q, %q)", dimension.Dimension, historyDimension.State, historyDimension.Coverage, dimension.State, dimension.Coverage)
+		}
+	}
+}
+
+// --- recency boundaries ---
+
+// TestGetHiveHealthHistory_NutritionTenDayCoverageBoundary proves
+// Nutrition's 10-day CURRENT/RECENT boundary changes coverage from HIGH
+// to MEDIUM the day after, with no new inspection - two nutrition-
+// contributing observations recorded the same day both count as
+// meaningful-current through day 10, and both drop to merely
+// meaningful-recent from day 11 on.
+func TestGetHiveHealthHistory_NutritionTenDayCoverageBoundary(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	feedingNo := inspection.FeedingNeedNo
+	seedInspection(t, repo, userID, hiveID, recorded, &inspection.Assessment{Version: 1, FoodStores: ptr(inspection.FoodStoresAdequate), FeedingNeed: &feedingNo})
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	day10 := recorded.AddDate(0, 0, 10)
+	day11 := recorded.AddDate(0, 0, 11)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day10, day11)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	atBoundary := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionNutrition)
+	afterBoundary := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionNutrition)
+
+	if atBoundary.Coverage != health.CoverageHigh {
+		t.Fatalf("nutrition coverage at day 10 = %q, want HIGH", atBoundary.Coverage)
+	}
+	if afterBoundary.Coverage != health.CoverageMedium {
+		t.Fatalf("nutrition coverage at day 11 = %q, want MEDIUM", afterBoundary.Coverage)
+	}
+	// State itself is unaffected by CURRENT vs RECENT - only STALE (30
+	// days) drops evidence from consideration entirely.
+	if atBoundary.State != health.DimensionGood || afterBoundary.State != health.DimensionGood {
+		t.Fatalf("nutrition state = (%q, %q), want (GOOD, GOOD) unchanged across the 10-day boundary", atBoundary.State, afterBoundary.State)
+	}
+}
+
+// TestGetHiveHealthHistory_OtherDimensionFourteenDayCoverageBoundary is
+// the same shape of test as the Nutrition one above, for a dimension on
+// the 14-day policy (QUEEN).
+func TestGetHiveHealthHistory_OtherDimensionFourteenDayCoverageBoundary(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	normal := inspection.QueenConditionNormal
+	seedInspection(t, repo, userID, hiveID, recorded, &inspection.Assessment{Version: 1, QueenStatus: ptr(inspection.QueenStatusHealthy), QueenCondition: &normal})
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	day14 := recorded.AddDate(0, 0, 14)
+	day15 := recorded.AddDate(0, 0, 15)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day14, day15)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	atBoundary := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionQueen)
+	afterBoundary := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionQueen)
+
+	if atBoundary.Coverage != health.CoverageHigh {
+		t.Fatalf("queen coverage at day 14 = %q, want HIGH", atBoundary.Coverage)
+	}
+	if afterBoundary.Coverage != health.CoverageMedium {
+		t.Fatalf("queen coverage at day 15 = %q, want MEDIUM", afterBoundary.Coverage)
+	}
+}
+
+// TestGetHiveHealthHistory_ThirtyDayStaleBoundaryChangesState proves the
+// dimension (and aggregate) STATE itself changes at the 30-day stale
+// boundary: evidence classified STALE is excluded from state
+// determination entirely, unlike the CURRENT/RECENT boundaries above
+// which only move coverage.
+func TestGetHiveHealthHistory_ThirtyDayStaleBoundaryChangesState(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	seedInspection(t, repo, userID, hiveID, recorded, queenStatusAssessment(inspection.QueenStatusHealthy))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	day30 := recorded.AddDate(0, 0, 30)
+	day31 := recorded.AddDate(0, 0, 31)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day30, day31)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	atBoundary := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionQueen)
+	afterBoundary := findDimension(result.Points[1].Evaluation.Dimensions, health.DimensionQueen)
+
+	if atBoundary.State != health.DimensionGood {
+		t.Fatalf("queen state at day 30 = %q, want GOOD (age == RecentFor is still inclusive)", atBoundary.State)
+	}
+	if afterBoundary.State != health.DimensionUnknown {
+		t.Fatalf("queen state at day 31 = %q, want UNKNOWN (evidence is now STALE)", afterBoundary.State)
+	}
+
+	// The same transition changes without any inspection occurring on
+	// either day 30 or day 31 - only time passing.
+	if len(result.Inspections) != 0 {
+		t.Fatalf("Inspections in [day30, day31] = %d, want 0 (the only inspection was on day1)", len(result.Inspections))
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

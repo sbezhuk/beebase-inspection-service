@@ -17,6 +17,7 @@ import (
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/mediaclient"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/notificationclient"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/postgres"
+	"github.com/sbezhuk/beebase-inspection-service/internal/platform/subscriptionclient"
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
 	transporthttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http"
 	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
@@ -83,7 +84,8 @@ func run() error {
 	hiveVerifier := hiveclient.New(cfg.HiveServiceURL)
 	mediaClient := mediaclient.New(cfg.MediaServiceURL)
 	notifications := notificationclient.New(cfg.NotificationServiceURL, cfg.InternalServiceToken)
-	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, cfg.InspectionWarningThresholdDays, notifications)
+	subscriptionClient := subscriptionclient.New(cfg.SubscriptionServiceURL)
+	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, cfg.InspectionWarningThresholdDays, notifications, subscriptionClient)
 	inspectionHandler := inspectionhttp.NewHandler(inspectionService, log, cfg.PublicBaseURL, notifications)
 
 	router := transporthttp.NewRouter(log, db, inspectionHandler, verifier, cfg.InternalServiceToken)

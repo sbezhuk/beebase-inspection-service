@@ -12,9 +12,16 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/pagination"
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
+
+// EntityCleanup is this service's dependency on notification-service's
+// reminder cleanup, kept as a named type (rather than inline in the
+// Service struct and NewService signature) so NewService's extras can be
+// dispatched by a type switch alongside EntitlementResolver.
+type EntityCleanup interface {
+	Cleanup(context.Context, string, uuid.UUID) error
+}
 
 // Service implements the inspection use cases. Every method takes the
 // requesting user's ID (extracted from their verified access token by the
@@ -25,22 +32,28 @@ type Service struct {
 	hives                HiveVerifier
 	media                MediaClient
 	warningThresholdDays int
-	reminders            interface {
-		Cleanup(context.Context, string, uuid.UUID) error
-	}
+	reminders            EntityCleanup
+	subscriptions        EntitlementResolver
 }
 
 // NewService constructs a Service. warningThresholdDays is the
 // configured "needs inspection" threshold (see
 // beebase-common/inspectionwarning) - this service is the single source
 // of truth for it, echoed back by HiveInspectionStatus so callers never
-// need their own copy.
-func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int, reminders ...interface {
-	Cleanup(context.Context, string, uuid.UUID) error
-}) *Service {
+// need their own copy. extras carries optional cross-cutting
+// dependencies dispatched by type (EntityCleanup for reminder cleanup,
+// EntitlementResolver for Pro-gating Colony Health history) rather than
+// fixed positional parameters, so adding one doesn't require updating
+// every existing call site.
+func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int, extras ...any) *Service {
 	s := &Service{inspections: inspections, hives: hives, media: media, warningThresholdDays: warningThresholdDays}
-	if len(reminders) > 0 {
-		s.reminders = reminders[0]
+	for _, extra := range extras {
+		switch v := extra.(type) {
+		case EntityCleanup:
+			s.reminders = v
+		case EntitlementResolver:
+			s.subscriptions = v
+		}
 	}
 	return s
 }
@@ -120,51 +133,6 @@ func (s *Service) Get(ctx context.Context, userID, inspectionID uuid.UUID) (*ins
 // instead of the repository's default order (InspectedAt).
 func (s *Service) ListByHive(ctx context.Context, userID, hiveID uuid.UUID, p pagination.Params, search *string, typ *inspection.Type, dateFrom, dateTo *time.Time, sortOrder *string) ([]*inspection.Inspection, int, error) {
 	return s.inspections.ListByHive(ctx, userID, hiveID, p, search, typ, dateFrom, dateTo, sortOrder)
-}
-
-// GetHiveHealth derives the current Colony Health snapshot from the complete
-// inspection history for hiveID. asOf is supplied by the transport boundary;
-// this method does not read the system clock.
-func (s *Service) GetHiveHealth(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID, asOf time.Time) (health.ColonyHealthEvaluation, error) {
-	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
-		return health.ColonyHealthEvaluation{}, err
-	}
-
-	reader, ok := s.inspections.(HealthInspectionReader)
-	if !ok {
-		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: repository does not support health evaluation history")
-	}
-	inspections, err := reader.ListAllByHive(ctx, userID, hiveID)
-	if err != nil {
-		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: list health evaluation history: %w", err)
-	}
-
-	input := health.DimensionEvaluationInput{
-		AsOf:             asOf,
-		RecencyPolicy:    health.DefaultRecencyPolicyV1(),
-		Evidence:         []health.HealthEvidence{},
-		ManagementEvents: []health.ManagementEvent{},
-		ContextFacts:     []health.ContextFact{},
-	}
-	for _, current := range inspections {
-		if current == nil {
-			return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: health evaluation history contains nil inspection")
-		}
-		normalized := health.NormalizeInspection(*current)
-		input.Evidence = append(input.Evidence, normalized.HealthEvidence...)
-		input.ManagementEvents = append(input.ManagementEvents, normalized.ManagementEvents...)
-		input.ContextFacts = append(input.ContextFacts, normalized.ContextFacts...)
-	}
-
-	dimensions, err := health.EvaluateDimensions(input)
-	if err != nil {
-		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: evaluate health dimensions: %w", err)
-	}
-	result, err := health.EvaluateColonyHealth(dimensions)
-	if err != nil {
-		return health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: evaluate colony health: %w", err)
-	}
-	return result, nil
 }
 
 // List returns the page of inspections described by p across every hive

@@ -67,10 +67,31 @@ type AssessmentResponse struct {
 	SeasonalConcerns       *[]inspection.SeasonalConcern      `json:"seasonalConcerns,omitempty"`
 }
 
+// ColonyHealthEvidenceSourceResponse is a compact provenance pointer to one
+// piece of evidence that actually participated in a dimension's state -
+// taken directly from health.DimensionEvaluation.ContributingEvidence,
+// which the evaluator itself already computes (see evaluateDimension's own
+// recency/latest-wins/supersession logic). It deliberately carries nothing
+// beyond what identifies and dates the source: enough for a client to
+// render "based on inspection from <date>" and open that inspection - never
+// enough to re-derive health state, which stays the evaluator's job alone.
+type ColonyHealthEvidenceSourceResponse struct {
+	InspectionID   uuid.UUID       `json:"inspectionId"`
+	InspectionType inspection.Type `json:"inspectionType"`
+	InspectedAt    string          `json:"inspectedAt"`
+	Field          string          `json:"field"`
+}
+
 type ColonyHealthDimensionResponse struct {
 	Dimension health.HealthDimension  `json:"dimension"`
 	State     health.DimensionState   `json:"state"`
 	Coverage  health.EvidenceCoverage `json:"coverage"`
+	// Sources is exactly health.DimensionEvaluation.ContributingEvidence,
+	// mapped to its provenance fields only - never re-filtered or
+	// re-derived here, so it can never diverge from what the evaluator
+	// actually used for this exact state. Empty (never null) when nothing
+	// contributed, e.g. an UNKNOWN dimension with no evidence at all.
+	Sources []ColonyHealthEvidenceSourceResponse `json:"sources"`
 }
 
 // ColonyHealthResponse is a derived snapshot. The top-level state is the
@@ -99,7 +120,30 @@ func newColonyHealthDimensionResponses(dimensions []health.DimensionEvaluation) 
 			Dimension: dimension.Dimension,
 			State:     dimension.State,
 			Coverage:  dimension.Coverage,
+			Sources:   newColonyHealthEvidenceSourceResponses(dimension.ContributingEvidence),
 		}
+	}
+	return out
+}
+
+// newColonyHealthEvidenceSourceResponses maps evidence the evaluator itself
+// already selected as contributing (see ColonyHealthDimensionResponse.
+// Sources) to its provenance. InspectionID/InspectionType are only ever nil
+// for evidence NormalizeInspection didn't produce from a real inspection -
+// doesn't happen in practice (see health.sourceFor), but skipped rather
+// than risking a nil-pointer dereference if that ever changed.
+func newColonyHealthEvidenceSourceResponses(evidence []health.HealthEvidence) []ColonyHealthEvidenceSourceResponse {
+	out := make([]ColonyHealthEvidenceSourceResponse, 0, len(evidence))
+	for _, item := range evidence {
+		if item.Source.InspectionID == nil || item.Source.InspectionType == nil {
+			continue
+		}
+		out = append(out, ColonyHealthEvidenceSourceResponse{
+			InspectionID:   *item.Source.InspectionID,
+			InspectionType: *item.Source.InspectionType,
+			InspectedAt:    item.Source.OccurredAt.Format("2006-01-02"),
+			Field:          string(item.Source.SourceField),
+		})
 	}
 	return out
 }

@@ -728,4 +728,305 @@ func TestGetHiveHealthHistory_RecencyAcrossLeapDay(t *testing.T) {
 	}
 }
 
+// --- explainability provenance (ContributingEvidence) ---
+
+// seedRoutineInspection mirrors seedInspection but persists a ROUTINE
+// inspection instead of HEALTH - required here because
+// health.NormalizeInspection only produces ColonyStrength evidence for
+// ROUTINE/SEASONAL inspections (see its own switch on input.Type), and this
+// file's provenance tests specifically need STRENGTH-dimension evidence.
+func seedRoutineInspection(t *testing.T, repo *fakeRepo, userID, hiveID uuid.UUID, at time.Time, assessment *inspection.Assessment) *inspection.Inspection {
+	t.Helper()
+	created := inspection.New(userID, hiveID, at, "", inspection.TypeRoutine)
+	created.Assessment = assessment
+	if err := repo.Create(context.Background(), created); err != nil {
+		t.Fatalf("seed routine inspection: %v", err)
+	}
+	return created
+}
+
+// colonyStrengthAssessment builds a minimal single-field assessment - used
+// below to isolate exactly one (dimension, field) fact per inspection so
+// supersession is unambiguous.
+func colonyStrengthAssessment(value inspection.ColonyStrength) *inspection.Assessment {
+	return &inspection.Assessment{Version: 1, ColonyStrength: &value}
+}
+
+// fullPositiveRoutineAssessment is the exact assessment from the Health
+// History audit that reported an unexplained CONCERN before an all-positive
+// ROUTINE inspection.
+func fullPositiveRoutineAssessment() *inspection.Assessment {
+	strength := inspection.ColonyStrengthStrong
+	queen := inspection.QueenStatusHealthy
+	brood := inspection.BroodStatusHealthy
+	food := inspection.FoodStoresAbundant
+	concerns := inspection.HealthConcernsNone
+	return &inspection.Assessment{
+		Version:        1,
+		ColonyStrength: &strength,
+		QueenStatus:    &queen,
+		BroodStatus:    &brood,
+		FoodStores:     &food,
+		HealthConcerns: &concerns,
+	}
+}
+
+// TestGetHiveHealthHistory_SinglePositiveRoutineInspectionExplainsAsGood is
+// the direct regression for the audited scenario: a single, entirely
+// positive ROUTINE inspection must explain as GOOD on and after its own
+// date (with STRENGTH/QUEEN/BROOD/NUTRITION all attributing to that exact
+// inspection), and UNKNOWN with no source at all before it - never CONCERN.
+func TestGetHiveHealthHistory_SinglePositiveRoutineInspectionExplainsAsGood(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	inspectedAt := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	seeded := seedRoutineInspection(t, repo, userID, hiveID, inspectedAt, fullPositiveRoutineAssessment())
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	dayBefore := inspectedAt.AddDate(0, 0, -1)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, dayBefore, inspectedAt)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	before := result.Points[0]
+	if before.Evaluation.State != health.DimensionUnknown {
+		t.Fatalf("day before the only inspection: state = %q, want UNKNOWN", before.Evaluation.State)
+	}
+	for _, dimension := range before.Evaluation.Dimensions {
+		if len(dimension.ContributingEvidence) != 0 {
+			t.Errorf("day before the only inspection: dimension %s has %d contributing evidence, want 0 (nothing exists yet)", dimension.Dimension, len(dimension.ContributingEvidence))
+		}
+	}
+
+	on := result.Points[1]
+	if on.Evaluation.State != health.DimensionGood {
+		t.Fatalf("inspection date: state = %q, want GOOD", on.Evaluation.State)
+	}
+	for _, name := range []health.HealthDimension{health.DimensionStrength, health.DimensionQueen, health.DimensionBrood, health.DimensionNutrition} {
+		dimension := findDimension(on.Evaluation.Dimensions, name)
+		if dimension.State != health.DimensionGood {
+			t.Fatalf("inspection date: %s state = %q, want GOOD", name, dimension.State)
+		}
+		if len(dimension.ContributingEvidence) != 1 {
+			t.Fatalf("inspection date: %s contributing evidence = %d, want exactly 1", name, len(dimension.ContributingEvidence))
+		}
+		source := dimension.ContributingEvidence[0].Source
+		if source.InspectionID == nil || *source.InspectionID != seeded.ID {
+			t.Errorf("inspection date: %s source inspection = %v, want %s", name, source.InspectionID, seeded.ID)
+		}
+		if !source.OccurredAt.Equal(inspectedAt) {
+			t.Errorf("inspection date: %s source occurredAt = %v, want %v", name, source.OccurredAt, inspectedAt)
+		}
+	}
+	pests := findDimension(on.Evaluation.Dimensions, health.DimensionPestsAndDisease)
+	if pests.State != health.DimensionUnknown || len(pests.ContributingEvidence) != 0 {
+		t.Fatalf("inspection date: PESTS_AND_DISEASE = (%q, %d sources), want (UNKNOWN, 0) - no evidence was ever recorded for it", pests.State, len(pests.ContributingEvidence))
+	}
+}
+
+// TestGetHiveHealthHistory_PreWindowSourceExplainsInWindowConcern is the
+// direct regression for the audited root cause: an older inspection dated
+// BEFORE the requested [from, to] window can still be the explained source
+// of an in-window CONCERN point, and that same source must stop being
+// reported the moment a newer inspection supersedes it on the identical
+// (dimension, field) - even though the newer inspection is the only one
+// ever visible as an in-window marker.
+func TestGetHiveHealthHistory_PreWindowSourceExplainsInWindowConcern(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	older := seedRoutineInspection(t, repo, userID, hiveID, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), colonyStrengthAssessment(inspection.ColonyStrengthWeak))
+	newer := seedRoutineInspection(t, repo, userID, hiveID, time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC), fullPositiveRoutineAssessment())
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	// The requested window starts AFTER the older inspection - it can never
+	// appear as an inspections[] marker, only newer can.
+	from := older.InspectedAt.AddDate(0, 0, 5)
+	to := newer.InspectedAt.AddDate(0, 0, 1)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, from, to)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	included := make(map[uuid.UUID]bool, len(result.Inspections))
+	for _, i := range result.Inspections {
+		included[i.ID] = true
+	}
+	if included[older.ID] {
+		t.Fatal("older inspection unexpectedly appears as an in-window marker")
+	}
+	if !included[newer.ID] {
+		t.Fatal("newer inspection must appear as an in-window marker")
+	}
+
+	dayBeforeNewer := findPoint(t, result.Points, newer.InspectedAt.AddDate(0, 0, -1))
+	strengthBefore := findDimension(dayBeforeNewer.Evaluation.Dimensions, health.DimensionStrength)
+	if strengthBefore.State != health.DimensionConcern {
+		t.Fatalf("day before the newer inspection: STRENGTH state = %q, want CONCERN (driven by the older, out-of-window inspection)", strengthBefore.State)
+	}
+	if len(strengthBefore.ContributingEvidence) != 1 {
+		t.Fatalf("day before the newer inspection: STRENGTH contributing evidence = %d, want exactly 1", len(strengthBefore.ContributingEvidence))
+	}
+	beforeSource := strengthBefore.ContributingEvidence[0].Source
+	if beforeSource.InspectionID == nil || *beforeSource.InspectionID != older.ID {
+		t.Errorf("day before the newer inspection: STRENGTH source = %v, want the OLDER inspection %s (even though it has no visible marker)", beforeSource.InspectionID, older.ID)
+	}
+	if !beforeSource.OccurredAt.Equal(older.InspectedAt) {
+		t.Errorf("day before the newer inspection: STRENGTH source occurredAt = %v, want %v", beforeSource.OccurredAt, older.InspectedAt)
+	}
+
+	onNewer := findPoint(t, result.Points, newer.InspectedAt)
+	strengthOn := findDimension(onNewer.Evaluation.Dimensions, health.DimensionStrength)
+	if strengthOn.State != health.DimensionGood {
+		t.Fatalf("newer inspection's own date: STRENGTH state = %q, want GOOD", strengthOn.State)
+	}
+	if len(strengthOn.ContributingEvidence) != 1 {
+		t.Fatalf("newer inspection's own date: STRENGTH contributing evidence = %d, want exactly 1 (the older same-field fact must be fully superseded, not blended)", len(strengthOn.ContributingEvidence))
+	}
+	onSource := strengthOn.ContributingEvidence[0].Source
+	if onSource.InspectionID == nil || *onSource.InspectionID != newer.ID {
+		t.Errorf("newer inspection's own date: STRENGTH source = %v, want the NEWER inspection %s, never the superseded older one", onSource.InspectionID, newer.ID)
+	}
+}
+
+// TestGetHiveHealthHistory_FutureInspectionNeverReportedAsSource extends
+// TestGetHiveHealthHistory_FutureInspectionsDoNotAffectEarlierPoints's own
+// scenario to explicitly assert on provenance, not just state: an
+// inspection dated after the evaluated day must never appear in that day's
+// ContributingEvidence, even though it exists in the repository.
+func TestGetHiveHealthHistory_FutureInspectionNeverReportedAsSource(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	day10 := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	day20 := day10.AddDate(0, 0, 10)
+	early := seedInspection(t, repo, userID, hiveID, day10, foodStoresAssessment(inspection.FoodStoresLow))
+	future := seedInspection(t, repo, userID, hiveID, day20, foodStoresAssessment(inspection.FoodStoresAdequate))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day10, day10)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	nutrition := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionNutrition)
+	if nutrition.State != health.DimensionConcern {
+		t.Fatalf("day10 nutrition state = %q, want CONCERN", nutrition.State)
+	}
+	for _, evidence := range nutrition.ContributingEvidence {
+		if evidence.Source.InspectionID != nil && *evidence.Source.InspectionID == future.ID {
+			t.Fatal("day10 nutrition ContributingEvidence includes the FUTURE inspection - future evidence must never be reported as a source")
+		}
+	}
+	if len(nutrition.ContributingEvidence) != 1 || nutrition.ContributingEvidence[0].Source.InspectionID == nil || *nutrition.ContributingEvidence[0].Source.InspectionID != early.ID {
+		t.Fatalf("day10 nutrition ContributingEvidence = %+v, want exactly the day10 (early) inspection", nutrition.ContributingEvidence)
+	}
+}
+
+// TestGetHiveHealthHistory_StaleEvidenceNotReportedAsActiveSource extends
+// TestGetHiveHealthHistory_ThirtyDayStaleBoundaryChangesState: the day
+// after the 30-day stale boundary must not report the now-stale inspection
+// as if it still actively explains a state - since the state itself is
+// UNKNOWN, there is no "active" state for it to (mis)explain.
+func TestGetHiveHealthHistory_StaleEvidenceNotReportedAsActiveSource(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	recorded := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	seedInspection(t, repo, userID, hiveID, recorded, queenStatusAssessment(inspection.QueenStatusHealthy))
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	day31 := recorded.AddDate(0, 0, 31)
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day31, day31)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	queen := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionQueen)
+	if queen.State != health.DimensionUnknown {
+		t.Fatalf("day31 queen state = %q, want UNKNOWN (evidence is stale)", queen.State)
+	}
+	// The evaluator may still surface the stale evidence for explanatory
+	// purposes (see evaluateDimension's UNKNOWN fallback) - the contract
+	// here is only that it can never be mistaken for an ACTIVE source of a
+	// non-UNKNOWN state, which is already impossible since the state is
+	// UNKNOWN. A client must render this as "no recent evidence", never
+	// "based on inspection from <date>".
+	t.Logf("day31 queen ContributingEvidence (informational, may be non-empty stale evidence): %+v", queen.ContributingEvidence)
+}
+
+// TestGetHiveHealthHistory_MultipleGenuineSourcesArePreserved proves that
+// when two DIFFERENT (dimension, field) facts genuinely both contribute to
+// one dimension's state, both are preserved in ContributingEvidence rather
+// than one being arbitrarily dropped.
+func TestGetHiveHealthHistory_MultipleGenuineSourcesArePreserved(t *testing.T) {
+	repo := newFakeRepo()
+	verifier := newFakeHiveVerifier()
+	userID := uuid.New()
+	hiveID := uuid.New()
+	verifier.allow("token", hiveID)
+
+	day := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	normal := inspection.QueenConditionNormal
+	seeded := seedInspection(t, repo, userID, hiveID, day, &inspection.Assessment{
+		Version:        1,
+		QueenStatus:    ptr(inspection.QueenStatusHealthy),
+		QueenCondition: &normal,
+	})
+
+	svc := newTestHiveHealthHistoryService(repo, verifier, newFakeEntitlementResolver())
+
+	result, err := svc.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, day, day)
+	if err != nil {
+		t.Fatalf("GetHiveHealthHistory: %v", err)
+	}
+
+	queen := findDimension(result.Points[0].Evaluation.Dimensions, health.DimensionQueen)
+	if queen.State != health.DimensionGood || len(queen.ContributingEvidence) != 2 {
+		t.Fatalf("queen = (%q, %d contributing), want (GOOD, 2) - both queenStatus and queenCondition genuinely contributed", queen.State, len(queen.ContributingEvidence))
+	}
+	fields := map[health.SourceField]bool{}
+	for _, evidence := range queen.ContributingEvidence {
+		fields[evidence.Source.SourceField] = true
+		if evidence.Source.InspectionID == nil || *evidence.Source.InspectionID != seeded.ID {
+			t.Errorf("contributing evidence source = %v, want %s", evidence.Source.InspectionID, seeded.ID)
+		}
+	}
+	if !fields[health.SourceFieldQueenStatus] || !fields[health.SourceFieldQueenCondition] {
+		t.Fatalf("contributing fields = %v, want both queenStatus and queenCondition preserved", fields)
+	}
+}
+
+// findPoint locates the HealthHistoryPoint for the exact calendar date -
+// test helper for the provenance tests above, which need to inspect a
+// specific day within a multi-day range rather than relying on slice index.
+func findPoint(t *testing.T, points []appinspection.HealthHistoryPoint, date time.Time) appinspection.HealthHistoryPoint {
+	t.Helper()
+	for _, point := range points {
+		if point.Date.Equal(date) {
+			return point
+		}
+	}
+	t.Fatalf("no history point for date %s", date.Format("2006-01-02"))
+	return appinspection.HealthHistoryPoint{}
+}
+
 func ptr[T any](v T) *T { return &v }

@@ -3,6 +3,7 @@ package health
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestEvaluateColonyHealthUnknownComponents(t *testing.T) {
@@ -228,6 +229,44 @@ func TestEvaluateColonyHealthInputOrderDoesNotMatter(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("input order changed result:\nfirst = %#v\nsecond = %#v", first, second)
+	}
+}
+
+// TestEvaluateColonyHealthStaleOnlyDimensionDoesNotAffectAggregate proves
+// that lowering a stale-only dimension's own coverage from LOW to NONE does
+// not change aggregate Colony Health: a stale-only dimension already has
+// State UNKNOWN, so it was never counted as "usable" for aggregation, both
+// before and after this fix.
+func TestEvaluateColonyHealthStaleOnlyDimensionDoesNotAffectAggregate(t *testing.T) {
+	asOf := evaluationTime()
+	evidence := []HealthEvidence{
+		// STRENGTH: single current, usable fact.
+		evidenceValue(DimensionStrength, SourceFieldColonyStrength, "STRONG", asOf.Add(-time.Hour)),
+		// NUTRITION: stale-only evidence, must not count as usable.
+		evidenceValue(DimensionNutrition, SourceFieldFoodStores, "ADEQUATE", asOf.Add(-31*24*time.Hour)),
+	}
+	dimensions, err := EvaluateDimensions(DimensionEvaluationInput{Evidence: evidence, AsOf: asOf, RecencyPolicy: DefaultRecencyPolicyV1()})
+	if err != nil {
+		t.Fatalf("EvaluateDimensions() error = %v", err)
+	}
+
+	nutrition := evaluationFor(dimensions, DimensionNutrition)
+	if nutrition.State != DimensionUnknown || nutrition.Coverage != CoverageNone {
+		t.Fatalf("nutrition = (%q, %q), want (UNKNOWN, NONE)", nutrition.State, nutrition.Coverage)
+	}
+
+	got, err := EvaluateColonyHealth(dimensions)
+	if err != nil {
+		t.Fatalf("EvaluateColonyHealth() error = %v", err)
+	}
+	// Only STRENGTH is usable (NUTRITION stays UNKNOWN); aggregate state and
+	// coverage must reflect exactly one usable component, unchanged by the
+	// stale-only dimension's coverage now reading NONE instead of LOW.
+	if got.State != DimensionWatch {
+		t.Fatalf("aggregate state = %q, want WATCH (single usable GOOD component)", got.State)
+	}
+	if got.Coverage != CoverageLow {
+		t.Fatalf("aggregate coverage = %q, want LOW (aggregateCoverage(1) is independent of dimension coverage)", got.Coverage)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/hiveclient"
 	"github.com/sbezhuk/beebase-inspection-service/internal/platform/mediaclient"
+	"github.com/sbezhuk/beebase-inspection-service/internal/platform/subscriptionclient"
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
 	transporthttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http"
 	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
@@ -196,10 +197,44 @@ func (f *fakeMediaService) calledDeleteWithQueryValue(key, value string) bool {
 	return false
 }
 
+// fakeSubscriptionService stands in for subscription-service's GET
+// /api/v1/subscription: it defaults every bearer token to "pro" entitlement
+// (the right default for every test that isn't specifically exercising the
+// Free gate on Colony Health history), and lets a test flip a token to
+// "free" via setEntitlement.
+type fakeSubscriptionService struct {
+	mu          sync.Mutex
+	entitlement map[string]string // "Bearer <token>" -> entitlement
+}
+
+func newFakeSubscriptionService() *fakeSubscriptionService {
+	return &fakeSubscriptionService{entitlement: map[string]string{}}
+}
+
+func (f *fakeSubscriptionService) setEntitlement(token, entitlement string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.entitlement["Bearer "+token] = entitlement
+}
+
+func (f *fakeSubscriptionService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	entitlement, ok := f.entitlement[r.Header.Get("Authorization")]
+	f.mu.Unlock()
+	if !ok {
+		entitlement = "pro"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"entitlement": entitlement})
+}
+
 type testStack struct {
 	server *httptest.Server
 	hive   *fakeHiveService
 	media  *fakeMediaService
+	sub    *fakeSubscriptionService
 	priv   ed25519.PrivateKey
 }
 
@@ -253,10 +288,15 @@ func newTestStack(t *testing.T) *testStack {
 	mediaServer := httptest.NewServer(media)
 	t.Cleanup(mediaServer.Close)
 
+	sub := newFakeSubscriptionService()
+	subServer := httptest.NewServer(sub)
+	t.Cleanup(subServer.Close)
+
 	inspectionRepo := repopostgres.NewInspectionRepository(tx)
 	hiveVerifier := hiveclient.New(hiveServer.URL)
 	mediaClient := mediaclient.New(mediaServer.URL)
-	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, inspectionwarning.DefaultThresholdDays)
+	subscriptionClient := subscriptionclient.New(subServer.URL)
+	inspectionService := appinspection.NewService(inspectionRepo, hiveVerifier, mediaClient, inspectionwarning.DefaultThresholdDays, subscriptionClient)
 	log := logger.New("development", "error")
 	handler := inspectionhttp.NewHandler(inspectionService, log, "http://localhost:8080")
 
@@ -265,7 +305,7 @@ func newTestStack(t *testing.T) *testStack {
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
-	return &testStack{server: srv, hive: hive, media: media, priv: priv}
+	return &testStack{server: srv, hive: hive, media: media, sub: sub, priv: priv}
 }
 
 func (s *testStack) tokenFor(t *testing.T, userID uuid.UUID) string {

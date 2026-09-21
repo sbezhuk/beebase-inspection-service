@@ -61,6 +61,11 @@ type Config struct {
 	// cascade-deleted alongside its hive.
 	MediaServiceURL string
 
+	// SubscriptionServiceURL is subscription-service's base URL, used to
+	// resolve the caller's Free/Pro entitlement when gating Colony Health
+	// history (GET /api/v1/hives/{hiveId}/health/history), which is Pro-only.
+	SubscriptionServiceURL string
+
 	// InspectionWarningThresholdDays is the number of days after a
 	// hive's latest inspection that it's considered to need inspection
 	// (see beebase-common/inspectionwarning). This service is the
@@ -97,6 +102,7 @@ func Load() (*Config, error) {
 		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", ""),
 		PublicBaseURL:          getEnv("PUBLIC_BASE_URL", ""),
 		MediaServiceURL:        getEnv("MEDIA_SERVICE_URL", ""),
+		SubscriptionServiceURL: getEnv("SUBSCRIPTION_SERVICE_URL", ""),
 
 		InspectionWarningThresholdDays: getInt("INSPECTION_WARNING_THRESHOLD_DAYS", inspectionwarning.DefaultThresholdDays),
 	}
@@ -121,6 +127,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.MediaServiceURL == "" {
 		return nil, fmt.Errorf("config: MEDIA_SERVICE_URL is required")
+	}
+	if cfg.SubscriptionServiceURL == "" {
+		return nil, fmt.Errorf("config: SUBSCRIPTION_SERVICE_URL is required")
 	}
 	if err := validateHTTPURL("NOTIFICATION_SERVICE_URL", cfg.NotificationServiceURL); err != nil {
 		return nil, err

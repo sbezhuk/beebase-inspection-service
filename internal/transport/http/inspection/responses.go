@@ -2,11 +2,13 @@ package inspection
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/medialink"
+	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
@@ -82,19 +84,95 @@ type ColonyHealthResponse struct {
 }
 
 func newColonyHealthResponse(asOf time.Time, evaluation health.ColonyHealthEvaluation) ColonyHealthResponse {
-	dimensions := make([]ColonyHealthDimensionResponse, len(evaluation.Dimensions))
-	for index, dimension := range evaluation.Dimensions {
-		dimensions[index] = ColonyHealthDimensionResponse{
+	return ColonyHealthResponse{
+		AsOf:       asOf,
+		State:      evaluation.State,
+		Coverage:   evaluation.Coverage,
+		Dimensions: newColonyHealthDimensionResponses(evaluation.Dimensions),
+	}
+}
+
+func newColonyHealthDimensionResponses(dimensions []health.DimensionEvaluation) []ColonyHealthDimensionResponse {
+	out := make([]ColonyHealthDimensionResponse, len(dimensions))
+	for index, dimension := range dimensions {
+		out[index] = ColonyHealthDimensionResponse{
 			Dimension: dimension.Dimension,
 			State:     dimension.State,
 			Coverage:  dimension.Coverage,
 		}
 	}
-	return ColonyHealthResponse{
-		AsOf:       asOf,
-		State:      evaluation.State,
-		Coverage:   evaluation.Coverage,
-		Dimensions: dimensions,
+	return out
+}
+
+// IntervalDay is the only supported value of the history endpoint's
+// "interval" query parameter (and, uppercased, its response field) - v1
+// only calculates one point per calendar day.
+const IntervalDay = "day"
+
+// ColonyHealthHistoryPointResponse is one calendar day's Colony Health v1
+// snapshot. It deliberately mirrors ColonyHealthResponse's own
+// state/coverage/dimensions shape (state renamed from AsOf's sibling
+// "state" - same field, same meaning) rather than inventing a parallel
+// shape, so a client already rendering the live snapshot recognizes this
+// immediately. OVERALL is not omitted: it comes through Dimensions as
+// explanatory evidence, exactly as GetHiveHealth's response has always
+// return it, and is still excluded from the aggregate State.
+type ColonyHealthHistoryPointResponse struct {
+	Date       string                          `json:"date"`
+	State      health.DimensionState           `json:"state"`
+	Coverage   health.EvidenceCoverage         `json:"coverage"`
+	Dimensions []ColonyHealthDimensionResponse `json:"dimensions"`
+}
+
+// ColonyHealthHistoryInspectionResponse is a compact marker for one
+// inspection that occurred within the requested history range - enough
+// for a client to open it (GET /api/v1/inspections/{id}), not a full
+// inspection payload.
+type ColonyHealthHistoryInspectionResponse struct {
+	ID   uuid.UUID       `json:"id"`
+	Date string          `json:"date"`
+	Type inspection.Type `json:"type"`
+}
+
+// ColonyHealthHistoryResponse is the public representation of GET
+// /api/v1/hives/{hiveId}/health/history: one point per calendar day in
+// [From, To], plus every inspection that occurred in that same range.
+type ColonyHealthHistoryResponse struct {
+	AlgorithmVersion string                                  `json:"algorithmVersion"`
+	From             string                                  `json:"from"`
+	To               string                                  `json:"to"`
+	Interval         string                                  `json:"interval"`
+	Points           []ColonyHealthHistoryPointResponse      `json:"points"`
+	Inspections      []ColonyHealthHistoryInspectionResponse `json:"inspections"`
+}
+
+func newColonyHealthHistoryResponse(result appinspection.HealthHistoryResult) ColonyHealthHistoryResponse {
+	points := make([]ColonyHealthHistoryPointResponse, len(result.Points))
+	for index, point := range result.Points {
+		points[index] = ColonyHealthHistoryPointResponse{
+			Date:       point.Date.Format("2006-01-02"),
+			State:      point.Evaluation.State,
+			Coverage:   point.Evaluation.Coverage,
+			Dimensions: newColonyHealthDimensionResponses(point.Evaluation.Dimensions),
+		}
+	}
+
+	inspections := make([]ColonyHealthHistoryInspectionResponse, len(result.Inspections))
+	for index, i := range result.Inspections {
+		inspections[index] = ColonyHealthHistoryInspectionResponse{
+			ID:   i.ID,
+			Date: i.InspectedAt.Format("2006-01-02"),
+			Type: i.Type,
+		}
+	}
+
+	return ColonyHealthHistoryResponse{
+		AlgorithmVersion: health.DefaultRecencyPolicyV1().Version,
+		From:             result.From.Format("2006-01-02"),
+		To:               result.To.Format("2006-01-02"),
+		Interval:         strings.ToUpper(IntervalDay),
+		Points:           points,
+		Inspections:      inspections,
 	}
 }
 

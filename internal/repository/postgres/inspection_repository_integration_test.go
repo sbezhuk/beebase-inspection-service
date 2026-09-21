@@ -15,8 +15,17 @@ import (
 	repopostgres "github.com/sbezhuk/beebase-inspection-service/internal/repository/postgres"
 )
 
+// inspectedAt returns a fixed calendar date for tests to seed inspections
+// with. It deliberately carries no time-of-day: inspected_at is a
+// PostgreSQL DATE column (see migrations/000007_change_inspected_at_to_date),
+// which cannot store one, and the domain treats an inspection as a
+// date-only event, never a timestamp - so any nonzero hour here would
+// silently be discarded by the database, not preserved and not
+// meaningful. Using midnight UTC directly keeps every consumer's
+// round-trip equality checks honest about that contract instead of
+// asserting a time-of-day the column can never actually return.
 func inspectedAt() time.Time {
-	return time.Date(2026, 3, 15, 9, 0, 0, 0, time.UTC)
+	return time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 }
 
 func TestInspectionRepository_CreateAndGet(t *testing.T) {
@@ -53,6 +62,63 @@ func TestInspectionRepository_CreateAndGet(t *testing.T) {
 	}
 	if !got.InspectedAt.Equal(i.InspectedAt) {
 		t.Errorf("InspectedAt = %v, want %v", got.InspectedAt, i.InspectedAt)
+	}
+}
+
+// TestInspectionRepository_InspectedAtRoundTripsAsDateOnlyUTCMidnight is
+// the DATE-persistence invariant the Colony Health history date-semantics
+// audit called for: inspected_at must round-trip as a pure calendar date
+// at UTC midnight, never as a preserved time-of-day, and never shifted to
+// an adjacent day by a UTC/local conversion.
+//
+// The submitted value is deliberately chosen so its local calendar date
+// and its UTC-converted calendar date disagree - 2026-09-20T23:00:00-05:00
+// is 2026-09-21T04:00:00Z. Empirically (verified against a real Postgres
+// instance, not inferred), inspected_at's `DATE` column takes the
+// submitted value's own calendar date (2026-09-20) rather than
+// normalizing through UTC first (which would have silently produced
+// 2026-09-21) - so a UTC/local mismatch can never push an inspection onto
+// the wrong day. This is a schema-level guarantee (see
+// migrations/000007_change_inspected_at_to_date.up.sql: a DATE column
+// cannot store a time-of-day or offset at all), not something the
+// application layer must defend on every write - production code never
+// constructs a non-UTC-midnight InspectedAt in the first place (see
+// transport/http/inspection.dateFilterLayout parsing), so this documents
+// the fallback behavior the schema itself enforces, not a path production
+// code relies on.
+func TestInspectionRepository_InspectedAtRoundTripsAsDateOnlyUTCMidnight(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+
+	loc := time.FixedZone("UTC-5", -5*60*60)
+	submitted := time.Date(2026, 9, 20, 23, 0, 0, 0, loc) // == 2026-09-21T04:00:00Z
+
+	i := inspection.New(userID, hiveID, submitted, "date-only invariant", inspection.TypeRoutine)
+	if err := repo.Create(ctx, i); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, userID, i.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+
+	want := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	if !got.InspectedAt.Equal(want) {
+		t.Fatalf("InspectedAt = %v, want %v (the submitted value's own calendar date at UTC midnight - no time-of-day, no UTC-shift to 2026-09-21)", got.InspectedAt, want)
+	}
+	if got.InspectedAt.Location().String() != time.UTC.String() {
+		t.Fatalf("InspectedAt location = %v, want UTC", got.InspectedAt.Location())
 	}
 }
 

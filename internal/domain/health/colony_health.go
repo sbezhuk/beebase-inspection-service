@@ -1,6 +1,9 @@
 package health
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // ColonyHealthEvaluation is the calculated aggregate of the five component
 // dimensions. Dimensions retains the independent evaluations, including the
@@ -75,6 +78,25 @@ func EvaluateColonyHealth(dimensions []DimensionEvaluation) (ColonyHealthEvaluat
 		Coverage:   aggregateCoverage(usable),
 		Dimensions: ordered,
 	}, nil
+}
+
+// CalculateColonyHealth is the single entry point for deriving a Colony
+// Health v1 snapshot from a hive's normalized evidence, as of asOf. It is
+// pure and allocation-light enough to call once per day when deriving a
+// history: callers load a hive's evidence once and invoke this repeatedly
+// with different asOf values rather than re-querying storage per point.
+// Only evidence with an occurrence time at or before asOf can contribute -
+// see ClassifyRecency, which this delegates to via EvaluateDimensions.
+func CalculateColonyHealth(evidence []HealthEvidence, asOf time.Time) (ColonyHealthEvaluation, error) {
+	dimensions, err := EvaluateDimensions(DimensionEvaluationInput{
+		Evidence:      evidence,
+		AsOf:          asOf,
+		RecencyPolicy: DefaultRecencyPolicyV1(),
+	})
+	if err != nil {
+		return ColonyHealthEvaluation{}, err
+	}
+	return EvaluateColonyHealth(dimensions)
 }
 
 func validateDimensionEvaluations(dimensions []DimensionEvaluation) (map[HealthDimension]DimensionEvaluation, error) {

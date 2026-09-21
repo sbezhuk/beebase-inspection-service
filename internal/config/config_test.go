@@ -16,8 +16,18 @@ func setRequiredEnv(t *testing.T) {
 		"PUBLIC_BASE_URL":          "http://localhost:8080",
 		"MEDIA_SERVICE_URL":        "http://media-service:8080",
 		"NOTIFICATION_SERVICE_URL": "http://notification-service:8080",
+		"SUBSCRIPTION_SERVICE_URL": "http://subscription-service:8080",
 	} {
 		t.Setenv(key, value)
+	}
+}
+
+func TestLoadRejectsMissingSubscriptionServiceURL(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("SUBSCRIPTION_SERVICE_URL", "")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "SUBSCRIPTION_SERVICE_URL") {
+		t.Fatalf("Load() error = %v, want SUBSCRIPTION_SERVICE_URL validation error", err)
 	}
 }
 

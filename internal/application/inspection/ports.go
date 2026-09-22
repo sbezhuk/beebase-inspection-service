@@ -34,6 +34,10 @@ type HealthInspectionReader interface {
 	ListAllByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error)
 }
 
+type InternalReportReader interface {
+	ListAllByHiveInternal(ctx context.Context, hiveID uuid.UUID) ([]*inspection.Inspection, error)
+}
+
 // MediaClient is inspection-service's dependency on media-service.
 // media-service has no notion of hives or inspections at all - it only
 // knows which files belong to which uploader - so inspection-service is

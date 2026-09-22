@@ -40,6 +40,7 @@ func NewRouter(
 	r.Get("/health", HealthHandler)
 	r.Get("/ready", ReadyHandler(db))
 	r.With(internalauth.RequireAuth(internalToken)).Get("/internal/api/v1/inspections/{id}/exists", existsHandler(db, "inspections", true))
+	r.With(internalauth.RequireAuth(internalToken)).Get("/internal/api/v1/hives/{hiveId}/report-data", inspectionHandler.InternalReportData)
 	r.With(internalauth.RequireAuth(internalToken)).Delete("/internal/api/v1/users/{userID}", func(w http.ResponseWriter, req *http.Request) {
 		id, err := uuid.Parse(chi.URLParam(req, "userID"))
 		if err != nil {

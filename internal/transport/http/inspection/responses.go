@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/medialink"
+	"github.com/sbezhuk/beebase-health/health"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -140,7 +140,7 @@ func newColonyHealthEvidenceSourceResponses(evidence []health.HealthEvidence) []
 		}
 		out = append(out, ColonyHealthEvidenceSourceResponse{
 			InspectionID:   *item.Source.InspectionID,
-			InspectionType: *item.Source.InspectionType,
+			InspectionType: inspection.Type(*item.Source.InspectionType),
 			InspectedAt:    item.Source.OccurredAt.Format("2006-01-02"),
 			Field:          string(item.Source.SourceField),
 		})

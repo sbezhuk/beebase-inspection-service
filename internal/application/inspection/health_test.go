@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-health/health"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 

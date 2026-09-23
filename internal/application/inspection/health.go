@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
+	"github.com/sbezhuk/beebase-health/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -143,7 +143,7 @@ func (s *Service) GetInternalReportData(ctx context.Context, hiveID uuid.UUID, f
 		if current == nil {
 			return HealthHistoryResult{}, health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: internal report history contains nil inspection")
 		}
-		normalized := health.NormalizeInspection(*current)
+		normalized := health.NormalizeInspection(toHealthInspection(current))
 		evidence = append(evidence, normalized.HealthEvidence...)
 	}
 
@@ -176,7 +176,7 @@ func (s *Service) loadHealthEvidence(ctx context.Context, userID, hiveID uuid.UU
 		if current == nil {
 			return nil, nil, fmt.Errorf("inspection: health evaluation history contains nil inspection")
 		}
-		normalized := health.NormalizeInspection(*current)
+		normalized := health.NormalizeInspection(toHealthInspection(current))
 		evidence = append(evidence, normalized.HealthEvidence...)
 	}
 	return evidence, all, nil

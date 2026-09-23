@@ -234,13 +234,21 @@ func (h *Handler) HiveHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asOf := time.Now().UTC()
+	asOf := currentHealthAsOf(time.Now())
 	evaluation, err := h.service.GetHiveHealth(r.Context(), userID, token, hiveID, asOf)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, newColonyHealthResponse(asOf, evaluation))
+}
+
+// currentHealthAsOf applies the date-only semantics used by persisted
+// inspectedAt values and by Health History points. Wall-clock time must not
+// make evidence cross a recency boundary during the same calendar date.
+func currentHealthAsOf(now time.Time) time.Time {
+	now = now.UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // HiveHealthHistory handles GET /api/v1/hives/{hiveId}/health/history. It

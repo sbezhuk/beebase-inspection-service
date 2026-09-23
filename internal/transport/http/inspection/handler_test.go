@@ -41,6 +41,15 @@ func TestNewColonyHealthResponseUsesCalculatedStateAndCanonicalDimensions(t *tes
 	}
 }
 
+func TestCurrentHealthAsOfUsesUTCDateBoundary(t *testing.T) {
+	now := time.Date(2026, 9, 20, 23, 45, 12, 0, time.FixedZone("local", 2*60*60))
+	got := currentHealthAsOf(now)
+	want := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("currentHealthAsOf = %v, want %v", got, want)
+	}
+}
+
 func TestWriteServiceError(t *testing.T) {
 	h := NewHandler(nil, slog.New(slog.NewTextHandler(io.Discard, nil)), "")
 

@@ -60,17 +60,10 @@ func (s *Service) GetHiveHealth(ctx context.Context, userID uuid.UUID, accessTok
 // days the range spans.
 //
 // Each day D's snapshot uses asOf = D at 00:00:00 UTC - the same
-// calendar-date-only semantics inspectedAt itself already uses - so a
-// historical point's classification depends only on which calendar day it
-// represents, never on the wall-clock time the request happened to run
-// at. This intentionally differs from GetHiveHealth, whose asOf is
-// whatever instant the live request arrived at: a history point is a
-// closed, stable fact about a calendar day, not a live reading, and
-// should not change if the same range is queried again later the same
-// day. When to is today, live GetHiveHealth and today's history point
-// still agree in practice (same evidence, and the only instant that could
-// classify differently is one that crosses a recency boundary within
-// today - which does not happen for a boundary set up on prior days).
+// calendar-date-only semantics inspectedAt itself uses - so a point's
+// classification depends only on which calendar day it represents. Current
+// Health uses the same UTC date boundary, ensuring that a wall-clock request
+// later on that day cannot cross a recency boundary for date-only evidence.
 func (s *Service) GetHiveHealthHistory(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID, from, to time.Time) (HealthHistoryResult, error) {
 	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return HealthHistoryResult{}, err

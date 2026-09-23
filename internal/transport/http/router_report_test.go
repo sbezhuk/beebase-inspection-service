@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	httpmw "github.com/sbezhuk/beebase-common/authmw"
 	inspectionhttp "github.com/sbezhuk/beebase-inspection-service/internal/transport/http/inspection"
 )
@@ -36,6 +38,63 @@ func TestInternalReportRouteAuthentication(t *testing.T) {
 			router.ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestInternalHealthFactsRouteAuthentication(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := inspectionhttp.NewHandler(nil, log, "")
+	router := NewRouter(log, nil, handler, httpmw.AccessTokenParser(nil), "internal-secret")
+	path := "/internal/api/v1/hives/not-a-uuid/health-facts?to=2026-01-02"
+
+	tests := []struct {
+		name          string
+		authorization string
+		wantStatus    int
+	}{
+		{name: "valid token reaches handler", authorization: "Bearer internal-secret", wantStatus: http.StatusBadRequest},
+		{name: "missing token rejected", wantStatus: http.StatusUnauthorized},
+		{name: "invalid token rejected", authorization: "Bearer wrong", wantStatus: http.StatusUnauthorized},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+		})
+	}
+}
+
+func TestInternalHealthFactsRouteDateValidation(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := inspectionhttp.NewHandler(nil, log, "")
+	router := NewRouter(log, nil, handler, httpmw.AccessTokenParser(nil), "internal-secret")
+	hiveID := uuid.NewString()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "missing to", path: "/internal/api/v1/hives/" + hiveID + "/health-facts", want: "to_required"},
+		{name: "invalid to", path: "/internal/api/v1/hives/" + hiveID + "/health-facts?to=2026-02-30", want: "to_invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("Authorization", "Bearer internal-secret")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tt.want) {
+				t.Fatalf("status/body = %d/%s, want 400 containing %q", rec.Code, rec.Body.String(), tt.want)
 			}
 		})
 	}

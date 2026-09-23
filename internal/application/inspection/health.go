@@ -157,6 +157,17 @@ func (s *Service) GetInternalReportData(ctx context.Context, hiveID uuid.UUID, f
 	return history, history.Points[len(history.Points)-1].Evaluation, nil
 }
 
+// GetInternalHealthFacts returns only the persisted inspection facts needed
+// by another trusted service to run the canonical health engine. It performs
+// no ownership, entitlement, or health calculation work.
+func (s *Service) GetInternalHealthFacts(ctx context.Context, hiveID uuid.UUID, to time.Time) ([]*inspection.Inspection, error) {
+	reader, ok := s.inspections.(InternalHealthFactsReader)
+	if !ok {
+		return nil, fmt.Errorf("inspection repository does not support internal health facts")
+	}
+	return reader.ListAllByHiveInternalUpTo(ctx, hiveID, to)
+}
+
 // loadHealthEvidence loads hiveID's complete non-deleted inspection
 // history exactly once and normalizes it into the flat evidence slice
 // health.CalculateColonyHealth expects, alongside the raw inspections

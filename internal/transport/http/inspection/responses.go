@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sbezhuk/beebase-common/medialink"
+	"github.com/sbezhuk/beebase-health/health"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -140,7 +140,7 @@ func newColonyHealthEvidenceSourceResponses(evidence []health.HealthEvidence) []
 		}
 		out = append(out, ColonyHealthEvidenceSourceResponse{
 			InspectionID:   *item.Source.InspectionID,
-			InspectionType: *item.Source.InspectionType,
+			InspectionType: inspection.Type(*item.Source.InspectionType),
 			InspectedAt:    item.Source.OccurredAt.Format("2006-01-02"),
 			Field:          string(item.Source.SourceField),
 		})
@@ -229,10 +229,7 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 	for idx, id := range i.Images {
 		images[idx] = ImageResponse{ID: id, ImageURL: medialink.DownloadURL(publicBaseURL, id)}
 	}
-	var assessment *AssessmentResponse
-	if i.Assessment != nil {
-		assessment = &AssessmentResponse{Version: i.Assessment.Version, ColonyStrength: i.Assessment.ColonyStrength, QueenStatus: i.Assessment.QueenStatus, BroodStatus: i.Assessment.BroodStatus, FoodStores: i.Assessment.FoodStores, HealthConcerns: i.Assessment.HealthConcerns, QueenObserved: i.Assessment.QueenObserved, EggsObserved: i.Assessment.EggsObserved, QueenCells: i.Assessment.QueenCells, QueenCondition: i.Assessment.QueenCondition, BroodAmount: i.Assessment.BroodAmount, BroodPattern: i.Assessment.BroodPattern, BroodStages: i.Assessment.BroodStages, BroodConcerns: i.Assessment.BroodConcerns, HealthOverallCondition: i.Assessment.HealthOverallCondition, PestSigns: i.Assessment.PestSigns, HealthWarningSigns: i.Assessment.HealthWarningSigns, HealthConcernLevel: i.Assessment.HealthConcernLevel, FeedingNeed: i.Assessment.FeedingNeed, FeedingPerformed: i.Assessment.FeedingPerformed, FeedTypes: i.Assessment.FeedTypes, Season: i.Assessment.Season, SeasonalStoreReadiness: i.Assessment.SeasonalStoreReadiness, SeasonalReadiness: i.Assessment.SeasonalReadiness, SeasonalConcerns: i.Assessment.SeasonalConcerns}
-	}
+	assessment := newAssessmentResponse(i.Assessment)
 	return Response{
 		ID:          i.ID,
 		HiveID:      i.HiveID,
@@ -245,6 +242,13 @@ func newResponse(i *inspection.Inspection, publicBaseURL string) Response {
 		UpdatedAt:   i.UpdatedAt,
 		Assessment:  assessment,
 	}
+}
+
+func newAssessmentResponse(a *inspection.Assessment) *AssessmentResponse {
+	if a == nil {
+		return nil
+	}
+	return &AssessmentResponse{Version: a.Version, ColonyStrength: a.ColonyStrength, QueenStatus: a.QueenStatus, BroodStatus: a.BroodStatus, FoodStores: a.FoodStores, HealthConcerns: a.HealthConcerns, QueenObserved: a.QueenObserved, EggsObserved: a.EggsObserved, QueenCells: a.QueenCells, QueenCondition: a.QueenCondition, BroodAmount: a.BroodAmount, BroodPattern: a.BroodPattern, BroodStages: a.BroodStages, BroodConcerns: a.BroodConcerns, HealthOverallCondition: a.HealthOverallCondition, PestSigns: a.PestSigns, HealthWarningSigns: a.HealthWarningSigns, HealthConcernLevel: a.HealthConcernLevel, FeedingNeed: a.FeedingNeed, FeedingPerformed: a.FeedingPerformed, FeedTypes: a.FeedTypes, Season: a.Season, SeasonalStoreReadiness: a.SeasonalStoreReadiness, SeasonalReadiness: a.SeasonalReadiness, SeasonalConcerns: a.SeasonalConcerns}
 }
 
 func newListResponse(inspections []*inspection.Inspection, publicBaseURL string) []Response {

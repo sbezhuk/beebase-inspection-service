@@ -65,6 +65,58 @@ func TestInspectionRepository_CreateAndGet(t *testing.T) {
 	}
 }
 
+func TestInspectionRepository_ListAllByHiveInternalUpTo_BoundsAndOrdersFacts(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewInspectionRepository(tx)
+	userID := uuid.New()
+	hiveID := uuid.New()
+	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
+
+	before := inspection.New(userID, hiveID, date(1), "before window", inspection.TypeRoutine)
+	sameDayLaterID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	sameDayEarlierID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	sameDayLater := inspection.New(userID, hiveID, date(5), "same day later id", inspection.TypeQueen)
+	sameDayLater.ID = sameDayLaterID
+	sameDayEarlier := inspection.New(userID, hiveID, date(5), "same day earlier id", inspection.TypeBrood)
+	sameDayEarlier.ID = sameDayEarlierID
+	exactTo := inspection.New(userID, hiveID, date(10), "inclusive upper bound", inspection.TypeHealth)
+	future := inspection.New(userID, hiveID, date(11), "future", inspection.TypeFeeding)
+	for _, item := range []*inspection.Inspection{before, sameDayLater, sameDayEarlier, exactTo, future} {
+		if err := repo.Create(ctx, item); err != nil {
+			t.Fatalf("Create %s: %v", item.ID, err)
+		}
+	}
+	deleted := inspection.New(userID, hiveID, date(4), "deleted", inspection.TypeSeasonal)
+	if err := repo.Create(ctx, deleted); err != nil {
+		t.Fatalf("Create deleted: %v", err)
+	}
+	if err := repo.Delete(ctx, userID, deleted.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	got, err := repo.ListAllByHiveInternalUpTo(ctx, hiveID, date(10))
+	if err != nil {
+		t.Fatalf("ListAllByHiveInternalUpTo: %v", err)
+	}
+	wantIDs := []uuid.UUID{before.ID, sameDayEarlierID, sameDayLaterID, exactTo.ID}
+	if len(got) != len(wantIDs) {
+		t.Fatalf("got %d facts, want %d", len(got), len(wantIDs))
+	}
+	for index, item := range got {
+		if item.ID != wantIDs[index] {
+			t.Errorf("fact %d ID = %s, want %s", index, item.ID, wantIDs[index])
+		}
+	}
+}
+
 // TestInspectionRepository_InspectedAtRoundTripsAsDateOnlyUTCMidnight is
 // the DATE-persistence invariant the Colony Health history date-semantics
 // audit called for: inspected_at must round-trip as a pure calendar date

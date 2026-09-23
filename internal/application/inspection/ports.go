@@ -2,6 +2,7 @@ package inspection
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -32,6 +33,16 @@ type HiveVerifier interface {
 // number.
 type HealthInspectionReader interface {
 	ListAllByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error)
+}
+
+type InternalReportReader interface {
+	ListAllByHiveInternal(ctx context.Context, hiveID uuid.UUID) ([]*inspection.Inspection, error)
+}
+
+// InternalHealthFactsReader supplies the complete non-deleted inspection
+// history up to an inclusive date for a trusted internal health consumer.
+type InternalHealthFactsReader interface {
+	ListAllByHiveInternalUpTo(ctx context.Context, hiveID uuid.UUID, to time.Time) ([]*inspection.Inspection, error)
 }
 
 // MediaClient is inspection-service's dependency on media-service.

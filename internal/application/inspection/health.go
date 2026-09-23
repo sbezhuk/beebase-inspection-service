@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
+	"github.com/sbezhuk/beebase-health/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
@@ -91,6 +91,12 @@ func (s *Service) GetHiveHealthHistory(ctx context.Context, userID uuid.UUID, ac
 	if err != nil {
 		return HealthHistoryResult{}, err
 	}
+	return calculateHealthHistory(evidence, all, from, to)
+}
+
+// calculateHealthHistory is the canonical range calculation shared by the
+// public Pro history endpoint and the trusted internal report endpoint.
+func calculateHealthHistory(evidence []health.HealthEvidence, all []*inspection.Inspection, from, to time.Time) (HealthHistoryResult, error) {
 
 	points := make([]HealthHistoryPoint, 0, int(to.Sub(from).Hours()/24)+1)
 	for day := from; !day.After(to); day = day.AddDate(0, 0, 1) {
@@ -117,6 +123,51 @@ func (s *Service) GetHiveHealthHistory(ctx context.Context, userID uuid.UUID, ac
 	return HealthHistoryResult{From: from, To: to, Points: points, Inspections: inRange}, nil
 }
 
+// GetInternalReportData returns the inspection-owned report data for a
+// trusted service caller. It deliberately bypasses user entitlement and
+// ownership checks: the endpoint is protected by INTERNAL_SERVICE_TOKEN.
+// Health and history still use the exact same evaluator and range logic as
+// the public endpoints.
+func (s *Service) GetInternalReportData(ctx context.Context, hiveID uuid.UUID, from, to time.Time) (HealthHistoryResult, health.ColonyHealthEvaluation, error) {
+	reader, ok := s.inspections.(InternalReportReader)
+	if !ok {
+		return HealthHistoryResult{}, health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: repository does not support internal report history")
+	}
+	all, err := reader.ListAllByHiveInternal(ctx, hiveID)
+	if err != nil {
+		return HealthHistoryResult{}, health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: list internal report history: %w", err)
+	}
+
+	evidence := make([]health.HealthEvidence, 0)
+	for _, current := range all {
+		if current == nil {
+			return HealthHistoryResult{}, health.ColonyHealthEvaluation{}, fmt.Errorf("inspection: internal report history contains nil inspection")
+		}
+		normalized := health.NormalizeInspection(toHealthInspection(current))
+		evidence = append(evidence, normalized.HealthEvidence...)
+	}
+
+	history, err := calculateHealthHistory(evidence, all, from, to)
+	if err != nil {
+		return HealthHistoryResult{}, health.ColonyHealthEvaluation{}, err
+	}
+	if len(history.Points) == 0 {
+		return history, health.ColonyHealthEvaluation{}, nil
+	}
+	return history, history.Points[len(history.Points)-1].Evaluation, nil
+}
+
+// GetInternalHealthFacts returns only the persisted inspection facts needed
+// by another trusted service to run the canonical health engine. It performs
+// no ownership, entitlement, or health calculation work.
+func (s *Service) GetInternalHealthFacts(ctx context.Context, hiveID uuid.UUID, to time.Time) ([]*inspection.Inspection, error) {
+	reader, ok := s.inspections.(InternalHealthFactsReader)
+	if !ok {
+		return nil, fmt.Errorf("inspection repository does not support internal health facts")
+	}
+	return reader.ListAllByHiveInternalUpTo(ctx, hiveID, to)
+}
+
 // loadHealthEvidence loads hiveID's complete non-deleted inspection
 // history exactly once and normalizes it into the flat evidence slice
 // health.CalculateColonyHealth expects, alongside the raw inspections
@@ -136,7 +187,7 @@ func (s *Service) loadHealthEvidence(ctx context.Context, userID, hiveID uuid.UU
 		if current == nil {
 			return nil, nil, fmt.Errorf("inspection: health evaluation history contains nil inspection")
 		}
-		normalized := health.NormalizeInspection(*current)
+		normalized := health.NormalizeInspection(toHealthInspection(current))
 		evidence = append(evidence, normalized.HealthEvidence...)
 	}
 	return evidence, all, nil

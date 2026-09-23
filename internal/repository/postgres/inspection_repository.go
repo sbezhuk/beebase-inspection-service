@@ -295,7 +295,26 @@ func (r *InspectionRepository) ListByHive(ctx context.Context, userID, hiveID uu
 // ListAllByHive returns the complete non-deleted inspection history for health
 // evaluation. It is deliberately separate from the paginated UI list.
 func (r *InspectionRepository) ListAllByHive(ctx context.Context, userID, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
-	const q = `
+	return r.listAllByHive(ctx, hiveID, &userID)
+}
+
+// ListAllByHiveInternal returns the complete non-deleted inspection history
+// for a trusted internal report consumer. It shares the same query and
+// assessment decoding as the user-scoped health reader.
+func (r *InspectionRepository) ListAllByHiveInternal(ctx context.Context, hiveID uuid.UUID) ([]*inspection.Inspection, error) {
+	return r.listAllByHive(ctx, hiveID, nil)
+}
+
+// ListAllByHiveInternalUpTo returns the complete non-deleted inspection
+// history through an inclusive date for a trusted internal health consumer.
+// There is intentionally no lower bound: pre-window evidence can still be
+// the latest source for a future health-history point.
+func (r *InspectionRepository) ListAllByHiveInternalUpTo(ctx context.Context, hiveID uuid.UUID, to time.Time) ([]*inspection.Inspection, error) {
+	return r.listAllByHive(ctx, hiveID, nil, &to)
+}
+
+func (r *InspectionRepository) listAllByHive(ctx context.Context, hiveID uuid.UUID, userID *uuid.UUID, dateTo ...*time.Time) ([]*inspection.Inspection, error) {
+	q := `
 		SELECT id, hive_id, user_id, inspected_at, notes, type, images, created_at, updated_at, deleted_at,
 			assessment_version, colony_strength, queen_status, brood_status, food_stores, health_concerns,
 			queen_observed, eggs_observed, queen_cells, queen_condition,
@@ -303,10 +322,22 @@ func (r *InspectionRepository) ListAllByHive(ctx context.Context, userID, hiveID
 			health_overall_condition, health_pest_signs, health_warning_signs, health_concern_level,
 			feeding_need, feeding_performed, feed_types, season, seasonal_store_readiness, seasonal_readiness, seasonal_concerns
 		FROM inspections
-		WHERE user_id = $1 AND hive_id = $2 AND deleted_at IS NULL
-		ORDER BY inspected_at ASC, id ASC`
+		WHERE hive_id = $1 AND deleted_at IS NULL`
 
-	rows, err := r.db.Query(ctx, q, userID, hiveID)
+	args := []any{hiveID}
+	argIndex := 2
+	if len(dateTo) > 0 && dateTo[0] != nil {
+		q += fmt.Sprintf(" AND inspected_at <= $%d", argIndex)
+		args = append(args, *dateTo[0])
+		argIndex++
+	}
+	if userID != nil {
+		q += fmt.Sprintf(" AND user_id = $%d", argIndex)
+		args = append(args, *userID)
+	}
+	q += " ORDER BY inspected_at ASC, id ASC"
+
+	rows, err := r.db.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list all inspections by hive: %w", err)
 	}

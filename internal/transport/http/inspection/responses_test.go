@@ -7,14 +7,14 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-health/health"
 	appinspection "github.com/sbezhuk/beebase-inspection-service/internal/application/inspection"
-	"github.com/sbezhuk/beebase-inspection-service/internal/domain/health"
 	"github.com/sbezhuk/beebase-inspection-service/internal/domain/inspection"
 )
 
 func TestNewColonyHealthDimensionResponses_MapsContributingEvidenceToSources(t *testing.T) {
 	inspectionID := uuid.New()
-	routineType := inspection.TypeRoutine
+	routineType := health.TypeRoutine
 	occurredAt := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
 
 	dimensions := []health.DimensionEvaluation{

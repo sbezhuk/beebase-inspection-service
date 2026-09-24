@@ -25,12 +25,11 @@ jobs:
   code-quality-and-tests:
     runs-on: ubuntu-latest
     env:
-      # github.com/sbezhuk/beebase-common is a private repo, so it's
-      # excluded from the public module proxy/checksum database and
-      # fetched directly via git instead, authenticated by the step
-      # below - see the Dockerfile for the equivalent Docker-build-time
-      # setup and its longer explanation.
-      GOPRIVATE: github.com/sbezhuk/beebase-common
+      # BeeBase private modules are excluded from the public module
+      # proxy/checksum database and fetched directly via git instead,
+      # authenticated by the step below. See the Dockerfile for the
+      # equivalent Docker-build-time setup.
+      GOPRIVATE: github.com/sbezhuk/*
     steps:
       - uses: actions/checkout@v4
 
@@ -38,9 +37,10 @@ jobs:
         with:
           go-version: "1.27"
 
-      - name: Configure git for the private beebase-common module
+      - name: Configure git for private BeeBase modules
         run: git config --global url."https://x-access-token:${{ secrets.BEEBASE_COMMON_GH_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - run: go mod download
       - run: go vet ./...
       - run: go test ./...
 
@@ -95,7 +95,7 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          # Fetches the private github.com/sbezhuk/beebase-common module
+          # Fetches private github.com/sbezhuk/beebase-* modules
           # (see the Dockerfile's RUN --mount=type=secret step) - never
           # passed as a build arg/env, so it never reaches an image layer.
           secrets: |

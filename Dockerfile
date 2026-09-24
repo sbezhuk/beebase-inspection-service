@@ -11,9 +11,9 @@ RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 
-# github.com/sbezhuk/beebase-common is a private GitHub repo, so it's
-# excluded from the public module proxy/checksum database (GOPRIVATE)
-# and fetched directly via git instead, authenticated with a
+# BeeBase private GitHub modules are excluded from the public module
+# proxy/checksum database (GOPRIVATE) and fetched directly via git instead,
+# authenticated with a
 # short-lived, read-only token supplied only as a BuildKit secret -
 # never a build ARG/ENV, so it can never end up in an image layer or
 # this Dockerfile, and it's gone the moment this RUN instruction ends
@@ -22,7 +22,7 @@ COPY go.mod go.sum ./
 # process-local config - never written to ~/.gitconfig - so nothing
 # token-related persists once `go mod download` returns.
 RUN --mount=type=secret,id=github_token,required=true \
-    GOPRIVATE=github.com/sbezhuk/beebase-common \
+    GOPRIVATE=github.com/sbezhuk/* \
     GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0="url.https://x-access-token:$(cat /run/secrets/github_token)@github.com/.insteadOf" \
     GIT_CONFIG_VALUE_0="https://github.com/" \

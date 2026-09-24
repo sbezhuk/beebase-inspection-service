@@ -67,15 +67,17 @@ sibling checkouts and routes between them.
 
 ### Building with beebase-common
 
-This service depends on the private `github.com/sbezhuk/beebase-common`
-module. A local `go build`/`go test` resolves it through your own git
-credentials, but building the Docker image (`docker compose up --build`
-or a plain `docker build .`) needs a GitHub PAT with `contents:read` on
-that repo, supplied as a BuildKit secret so it never ends up in an
-image layer:
+This service depends on private BeeBase modules, including
+`github.com/sbezhuk/beebase-common` and
+`github.com/sbezhuk/beebase-health`. A local `go build`/`go test` resolves
+them through your own git credentials. Building the Docker image
+(`docker compose up --build` or a plain `docker build .`) needs a GitHub
+PAT with `contents:read` on the required repositories, supplied as a
+BuildKit secret so it never ends up in an image layer:
 
 ```bash
 export BEEBASE_COMMON_GH_TOKEN=$(gh auth token)   # or any read-scoped PAT
+export GOPRIVATE=github.com/sbezhuk/*
 docker compose up --build
 # or: docker build --secret id=github_token,env=BEEBASE_COMMON_GH_TOKEN .
 ```

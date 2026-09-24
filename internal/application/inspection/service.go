@@ -16,9 +16,7 @@ import (
 )
 
 // EntityCleanup is this service's dependency on notification-service's
-// reminder cleanup, kept as a named type (rather than inline in the
-// Service struct and NewService signature) so NewService's extras can be
-// dispatched by a type switch alongside EntitlementResolver.
+// reminder cleanup.
 type EntityCleanup interface {
 	Cleanup(context.Context, string, uuid.UUID) error
 }
@@ -33,7 +31,6 @@ type Service struct {
 	media                MediaClient
 	warningThresholdDays int
 	reminders            EntityCleanup
-	subscriptions        EntitlementResolver
 }
 
 // NewService constructs a Service. warningThresholdDays is the
@@ -41,8 +38,7 @@ type Service struct {
 // beebase-common/inspectionwarning) - this service is the single source
 // of truth for it, echoed back by HiveInspectionStatus so callers never
 // need their own copy. extras carries optional cross-cutting
-// dependencies dispatched by type (EntityCleanup for reminder cleanup,
-// EntitlementResolver for Pro-gating Colony Health history) rather than
+// dependencies dispatched by type (EntityCleanup for reminder cleanup) rather than
 // fixed positional parameters, so adding one doesn't require updating
 // every existing call site.
 func NewService(inspections inspection.Repository, hives HiveVerifier, media MediaClient, warningThresholdDays int, extras ...any) *Service {
@@ -51,8 +47,6 @@ func NewService(inspections inspection.Repository, hives HiveVerifier, media Med
 		switch v := extra.(type) {
 		case EntityCleanup:
 			s.reminders = v
-		case EntitlementResolver:
-			s.subscriptions = v
 		}
 	}
 	return s

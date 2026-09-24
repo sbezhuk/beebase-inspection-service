@@ -79,10 +79,6 @@ func NewRouter(
 		// flat form instead of fanning this out per hive.
 		r.Get("/api/v1/hives/{hiveId}/inspections", inspectionHandler.ListByHive)
 		r.Get("/api/v1/hives/{hiveId}/health", inspectionHandler.HiveHealth)
-		// A distinct static route, not a query parameter on /health: chi
-		// resolves this ahead of the shorter "/health" path with no
-		// ambiguity between the two. Pro-only - see HiveHealthHistory.
-		r.Get("/api/v1/hives/{hiveId}/health/history", inspectionHandler.HiveHealthHistory)
 		// Internal cascade primitive: called by hive-service when it
 		// deletes a hive, forwarding the caller's own access token.
 		r.Delete("/api/v1/hives/{hiveId}/inspections", inspectionHandler.DeleteByHive)

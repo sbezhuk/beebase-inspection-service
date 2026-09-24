@@ -77,47 +77,6 @@ func TestGetHiveHealthRequiresHiveAccess(t *testing.T) {
 	}
 }
 
-func TestGetHiveHealthMatchesSameDateHistoryPointAtAnyClockTime(t *testing.T) {
-	repo := newFakeRepo()
-	verifier := newFakeHiveVerifier()
-	userID := uuid.New()
-	hiveID := uuid.New()
-	verifier.allow("token", hiveID)
-
-	// inspectedAt is a persisted calendar date. At exactly 30 calendar days,
-	// the date-only history point is still RECENT; a wall-clock asOf later on
-	// that same date must not turn the same evidence STALE.
-	recorded := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
-	asOfDate := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
-	foodStores := inspection.FoodStoresAdequate
-	created := inspection.New(userID, hiveID, recorded, "", inspection.TypeFeeding)
-	created.Assessment = &inspection.Assessment{Version: 1, FoodStores: &foodStores}
-	if err := repo.Create(context.Background(), created); err != nil {
-		t.Fatalf("seed inspection: %v", err)
-	}
-
-	service := appinspection.NewService(repo, verifier, newFakeMediaClient(), 14, newFakeEntitlementResolver())
-	live, err := service.GetHiveHealth(context.Background(), userID, "token", hiveID, asOfDate)
-	if err != nil {
-		t.Fatalf("GetHiveHealth: %v", err)
-	}
-	history, err := service.GetHiveHealthHistory(context.Background(), userID, "token", hiveID, asOfDate, asOfDate)
-	if err != nil {
-		t.Fatalf("GetHiveHealthHistory: %v", err)
-	}
-
-	point := history.Points[0].Evaluation
-	if live.State != point.State || live.Coverage != point.Coverage {
-		t.Fatalf("same-date current/history aggregate diverged: live=(%q,%q), history=(%q,%q)", live.State, live.Coverage, point.State, point.Coverage)
-	}
-	for _, dimension := range live.Dimensions {
-		other := findDimension(point.Dimensions, dimension.Dimension)
-		if dimension.State != other.State || dimension.Coverage != other.Coverage {
-			t.Fatalf("same-date %s diverged: live=(%q,%q), history=(%q,%q)", dimension.Dimension, dimension.State, dimension.Coverage, other.State, other.Coverage)
-		}
-	}
-}
-
 func findDimension(dimensions []health.DimensionEvaluation, dimension health.HealthDimension) health.DimensionEvaluation {
 	for _, current := range dimensions {
 		if current.Dimension == dimension {

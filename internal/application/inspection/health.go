@@ -13,7 +13,7 @@ import (
 )
 
 // HealthHistoryPoint is one calendar day's Colony Health v1 snapshot, as
-// of that day's calendar-date boundary (see GetHiveHealthHistory).
+// of that day's calendar-date boundary.
 type HealthHistoryPoint struct {
 	Date       time.Time
 	Evaluation health.ColonyHealthEvaluation
@@ -50,45 +50,8 @@ func (s *Service) GetHiveHealth(ctx context.Context, userID uuid.UUID, accessTok
 	return result, nil
 }
 
-// GetHiveHealthHistory derives one Colony Health v1 snapshot per calendar
-// day in the inclusive [from, to] range for hiveID - a Pro-only feature
-// (see EntitlementResolver). The complete inspection history is loaded
-// exactly once, normalized into evidence once, and then the pure
-// health.CalculateColonyHealth is invoked once per day against that same
-// in-memory evidence - so this never queries the repository (or
-// subscription-service, or hive-service) per day, regardless of how many
-// days the range spans.
-//
-// Each day D's snapshot uses asOf = D at 00:00:00 UTC - the same
-// calendar-date-only semantics inspectedAt itself uses - so a point's
-// classification depends only on which calendar day it represents. Current
-// Health uses the same UTC date boundary, ensuring that a wall-clock request
-// later on that day cannot cross a recency boundary for date-only evidence.
-func (s *Service) GetHiveHealthHistory(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID, from, to time.Time) (HealthHistoryResult, error) {
-	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
-		return HealthHistoryResult{}, err
-	}
-
-	if s.subscriptions == nil {
-		return HealthHistoryResult{}, fmt.Errorf("inspection: service has no entitlement resolver configured")
-	}
-	entitlement, err := s.subscriptions.GetEntitlement(ctx, accessToken)
-	if err != nil {
-		return HealthHistoryResult{}, fmt.Errorf("inspection: resolve entitlement: %w", err)
-	}
-	if entitlement != EntitlementPro {
-		return HealthHistoryResult{}, ErrHealthHistoryProRequired
-	}
-
-	evidence, all, err := s.loadHealthEvidence(ctx, userID, hiveID)
-	if err != nil {
-		return HealthHistoryResult{}, err
-	}
-	return calculateHealthHistory(evidence, all, from, to)
-}
-
-// calculateHealthHistory is the canonical range calculation shared by the
-// public Pro history endpoint and the trusted internal report endpoint.
+// calculateHealthHistory is the canonical range calculation used by the
+// trusted internal report endpoint.
 func calculateHealthHistory(evidence []health.HealthEvidence, all []*inspection.Inspection, from, to time.Time) (HealthHistoryResult, error) {
 
 	points := make([]HealthHistoryPoint, 0, int(to.Sub(from).Hours()/24)+1)

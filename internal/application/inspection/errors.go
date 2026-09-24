@@ -32,10 +32,3 @@ var ErrMediaLimitReached = errors.New("media limit reached")
 var ErrHiveReadOnly = errors.New("hive is read-only under the free plan")
 
 var ErrAssessmentInvalid = errors.New("invalid inspection assessment")
-
-// ErrHealthHistoryProRequired is returned when a Free-entitlement caller
-// requests Colony Health history for a hive they own. Distinct from
-// ErrHiveReadOnly: it doesn't matter whether the hive itself is currently
-// writable under Free - health history is gated on the caller's own
-// subscription entitlement, not on hive/apiary resource limits.
-var ErrHealthHistoryProRequired = errors.New("colony health history requires pro")

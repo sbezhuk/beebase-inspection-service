@@ -66,25 +66,6 @@ type MediaClient interface {
 	DeleteByIDs(ctx context.Context, accessToken string, ids []uuid.UUID) error
 }
 
-// Entitlement values returned by subscription-service, mirroring the
-// convention hive-service and apiary-service already established for
-// their own EntitlementResolver ports.
-const (
-	EntitlementFree = "free"
-	EntitlementPro  = "pro"
-)
-
-// EntitlementResolver resolves the subscription entitlement for a user by
-// their access token. It's a port because subscriptions live in a
-// different service; this service never evaluates entitlement itself, it
-// only ever asks subscription-service, the sole source of truth. Unlike
-// HiveVerifier's writability (which gates how many Free resources exist),
-// this gates an entire feature - Colony Health history - behind Pro
-// regardless of resource counts, so it's checked independently.
-type EntitlementResolver interface {
-	GetEntitlement(ctx context.Context, accessToken string) (string, error)
-}
-
 const (
 	// MaxMediaAttachments is the maximum number of media attachments allowed per inspection.
 	MaxMediaAttachments = 5

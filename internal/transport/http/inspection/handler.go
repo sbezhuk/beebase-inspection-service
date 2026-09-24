@@ -47,28 +47,7 @@ const (
 	// convention for the same concept, since it's the same meaning from
 	// the client's point of view regardless of which service returned it.
 	CodeParentResourceProLocked = "parent_resource_pro_locked"
-	// CodeHealthHistoryProRequired identifies a GET .../health/history
-	// request from a caller whose subscription entitlement is currently
-	// Free. Distinct from CodeParentResourceProLocked: it doesn't matter
-	// whether the hive itself is writable - the client should route the
-	// user to the Subscription screen, not suggest anything about hive
-	// state.
-	CodeHealthHistoryProRequired = "health_history_pro_required"
-
-	CodeFromRequired        = "from_required"
-	CodeFromInvalid         = "from_invalid"
-	CodeToRequired          = "to_required"
-	CodeToInvalid           = "to_invalid"
-	CodeFromAfterTo         = "from_after_to"
-	CodeHistoryRangeTooLong = "history_range_too_long"
-	CodeIntervalUnsupported = "interval_unsupported"
 )
-
-// maxHealthHistoryPoints is the maximum number of daily points GET
-// .../health/history will calculate for one request (an inclusive
-// [from, to] range), keeping both the calculation and the response
-// payload bounded regardless of what a caller requests.
-const maxHealthHistoryPoints = 365
 
 const minSearchLength = 3
 
@@ -249,96 +228,6 @@ func (h *Handler) HiveHealth(w http.ResponseWriter, r *http.Request) {
 func currentHealthAsOf(now time.Time) time.Time {
 	now = now.UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-}
-
-// HiveHealthHistory handles GET /api/v1/hives/{hiveId}/health/history. It
-// is Pro-only: a Free caller who otherwise owns hiveId gets 403
-// CodeHealthHistoryProRequired, never the hive's own writability status
-// (unrelated concepts - a Free caller's hive can be perfectly writable
-// and history is still gated). Like HiveHealth, every point is derived
-// fresh from the hive's inspection history, never persisted.
-func (h *Handler) HiveHealthHistory(w http.ResponseWriter, r *http.Request) {
-	userID, token, ok := h.requireAuth(w, r)
-	if !ok {
-		return
-	}
-
-	hiveID, err := uuid.Parse(chi.URLParam(r, "hiveId"))
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
-		return
-	}
-
-	from, to, fields := parseHealthHistoryRange(r)
-	if len(fields) > 0 {
-		httpx.WriteValidationError(w, fields)
-		return
-	}
-
-	result, err := h.service.GetHiveHealthHistory(r.Context(), userID, token, hiveID, from, to)
-	if err != nil {
-		h.writeServiceError(w, err)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, newColonyHealthHistoryResponse(result))
-}
-
-// parseHealthHistoryRange reads and validates the "from", "to", and
-// "interval" query parameters for GET .../health/history: from/to are
-// required calendar dates (YYYY-MM-DD), from must not fall after to, the
-// inclusive range must contain no more than maxHealthHistoryPoints daily
-// points, and interval - when given - must be "day" (case-insensitively;
-// it's absent from the returned fields either way, since it has a
-// default). On any validation failure, fields carries every violated
-// field's error code and from/to are zero values.
-func parseHealthHistoryRange(r *http.Request) (from, to time.Time, fields map[string]string) {
-	fields = map[string]string{}
-
-	rawFrom := r.URL.Query().Get("from")
-	switch {
-	case rawFrom == "":
-		fields["from"] = CodeFromRequired
-	default:
-		parsed, err := time.Parse(dateFilterLayout, rawFrom)
-		if err != nil {
-			fields["from"] = CodeFromInvalid
-		} else {
-			from = parsed
-		}
-	}
-
-	rawTo := r.URL.Query().Get("to")
-	switch {
-	case rawTo == "":
-		fields["to"] = CodeToRequired
-	default:
-		parsed, err := time.Parse(dateFilterLayout, rawTo)
-		if err != nil {
-			fields["to"] = CodeToInvalid
-		} else {
-			to = parsed
-		}
-	}
-
-	if rawInterval := r.URL.Query().Get("interval"); rawInterval != "" && !strings.EqualFold(rawInterval, IntervalDay) {
-		fields["interval"] = CodeIntervalUnsupported
-	}
-
-	if len(fields) > 0 {
-		return time.Time{}, time.Time{}, fields
-	}
-
-	if from.After(to) {
-		fields["to"] = CodeFromAfterTo
-		return time.Time{}, time.Time{}, fields
-	}
-
-	if days := int(to.Sub(from).Hours()/24) + 1; days > maxHealthHistoryPoints {
-		fields["to"] = CodeHistoryRangeTooLong
-		return time.Time{}, time.Time{}, fields
-	}
-
-	return from, to, nil
 }
 
 func parseSearch(r *http.Request, fields map[string]string) (*string, map[string]string) {
@@ -601,8 +490,6 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
 	case errors.Is(err, appinspection.ErrHiveReadOnly):
 		httpx.WriteError(w, http.StatusForbidden, CodeParentResourceProLocked, "this inspection's hive requires Pro to edit")
-	case errors.Is(err, appinspection.ErrHealthHistoryProRequired):
-		httpx.WriteError(w, http.StatusForbidden, CodeHealthHistoryProRequired, "colony health history requires pro")
 	case errors.Is(err, appinspection.ErrImageNotFound):
 		httpx.WriteValidationError(w, map[string]string{"images": CodeImageNotFound})
 	case errors.Is(err, appinspection.ErrMediaLimitReached):

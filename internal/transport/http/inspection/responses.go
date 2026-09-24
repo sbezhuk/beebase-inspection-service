@@ -148,9 +148,8 @@ func newColonyHealthEvidenceSourceResponses(evidence []health.HealthEvidence) []
 	return out
 }
 
-// IntervalDay is the only supported value of the history endpoint's
-// "interval" query parameter (and, uppercased, its response field) - v1
-// only calculates one point per calendar day.
+// IntervalDay is the interval represented by the internal report health
+// history payload. Colony Health v1 calculates one point per calendar day.
 const IntervalDay = "day"
 
 // ColonyHealthHistoryPointResponse is one calendar day's Colony Health v1
@@ -178,9 +177,9 @@ type ColonyHealthHistoryInspectionResponse struct {
 	Type inspection.Type `json:"type"`
 }
 
-// ColonyHealthHistoryResponse is the public representation of GET
-// /api/v1/hives/{hiveId}/health/history: one point per calendar day in
-// [From, To], plus every inspection that occurred in that same range.
+// ColonyHealthHistoryResponse is the history representation embedded in
+// trusted internal report data: one point per calendar day in [From, To],
+// plus every inspection that occurred in that same range.
 type ColonyHealthHistoryResponse struct {
 	AlgorithmVersion string                                  `json:"algorithmVersion"`
 	From             string                                  `json:"from"`
